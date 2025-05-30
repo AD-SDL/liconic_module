@@ -1,7 +1,3 @@
-#package specific ignores
-*_logs/*.log
-*.log
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -9,7 +5,6 @@ __pycache__/
 
 # C extensions
 *.so
-!src/liconic_interface/libstxlib.so
 
 # Distribution / packaging
 .Python
@@ -124,7 +119,10 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
+# pdm
+.pdm.toml
+.pdm-python
+.pdm-build/
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -132,12 +130,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Urx python repo to be ignorred in the local path
+python-urx/
+
+#VScode
 .vscode/
-
-# Config files
-# we will leave the *.yaml files public
-*.yml
-
-# DS store
-.DS_Store
-*/.DS_Store

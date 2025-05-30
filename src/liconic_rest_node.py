@@ -1,94 +1,116 @@
 """REST-based client for the Liconic"""
+# ruff: noqa
 
 import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi.datastructures import State
-from wei.modules.rest_module import RESTModule
-from wei.types import StepResponse
-from wei.types.module_types import ModuleState
+from madsci.client.resource_client import ResourceClient
+from madsci.common.types.auth_types import OwnershipInfo
+from madsci.common.types.node_types import RestNodeConfig
+from madsci.node_module.rest_node_module import RestNode
 
 from liconic_interface import Stx
 from liconic_interface.resource_tracker import ResourceTracker
 
-liconic_module = RESTModule(
-    name="liconic_node",
-    description="A module for controlling a Liconic STX incubator",
-    port=2010,
-)
 
-liconic_module.arg_parser.add_argument(
-    "--device",
-    type=str,
-    default="/dev/ttyUSB0",
-    help="Serial device for communicating with the device",
-)
-liconic_module.arg_parser.add_argument(
-    "--resources_path",
-    type=Path,
-    default=Path.home() / "liconic_temp/resources/liconic_resources.yaml",
-    help="Path to resources directory",
-)
+class LiconicNodeConfig(RestNodeConfig):
+    """Configuration for the Liconic REST node"""
+
+    device: str = "/dev/ttyUSB0"
+    resources_path: Path = Path.home() / "liconic_temp/resources/liconic_resources.yaml"
 
 
-@liconic_module.startup()
-def liconic_startup(state: State):
-    """Handles initializing the Liconic STX object and resources"""
-    state.liconic = None
-    state.module_resources = None
-    state.liconic = Stx(state.device)
-    state.resources_path = Path(state.resources_path).expanduser().resolve()
-    state.module_resources = ResourceTracker(state.resources_path)
+class LiconicRestNode(RestNode):
+    """REST-based client for the Liconic incubator"""
+
+    liconic_interface: Stx = None
+    module_resources: ResourceTracker = None
+    config_model: LiconicNodeConfig
+
+    def startup_handler(self) -> None:
+        """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
+        try:
+            if self.config.resource_server_url:
+                self.resource_client = ResourceClient(self.config.resource_server_url)
+                self.resource_owner = OwnershipInfo(
+                    node_id=self.node_definition.node_id
+                )
+
+            else:
+                self.resource_client = None
+
+            self.logger.log("Node initializing...")
+            self.liconic_interface = Stx(self.config.device)
+            self.resources_path = (
+                Path(self.config.resources_path).expanduser().resolve()
+            )
+            self.module_resources = ResourceTracker(self.resources_path)
+
+        except Exception as err:
+            self.logger.log_error(f"Error starting the Liconic Node: {err}")
+            self.startup_has_run = False
+        else:
+            self.startup_has_run = True
+            self.logger.log("Liconic node initialized!")
+
+    def shutdown_handler(self) -> None:
+        """Called to shutdown the node. Should be used to close connections to devices or release any other resources."""
+        try:
+            self.logger.log("Shutting down")
+            if self.liconic_interface is not None:
+                self.shutdown_has_run = True
+                del self.liconic_interface
+                self.liconic_interface = None
+                self.logger.log("Shutdown complete.")
+        except Exception as err:
+            self.logger.log_error(f"Error shutting down the Liconic Node: {err}")
+
+    def state_handler(self) -> None:
+        """Periodically called to update the current state of the node."""
+        if self.liconic_interface is None:
+            self.logger.log_error("Liconic interface is not initialized")
+            return
+        if self.liconic_interface.is_busy:
+            self.node_state = {
+                "liconic_status_code": "BUSY",
+                "current_temperature": self.cached_current_temperature,
+                "target_temperature": self.cached_target_temperature,
+                "current_humidity": self.cached_current_humidity,
+                "target_humidity": self.cached_target_humidity,
+                "shovel_occupied": self.cached_shovel_occupied,
+                "transfer_station_occupied": self.cached_transfer_station_occupied,
+                "transfer_station_2_occupied": self.cached_transfer_station_2_occupied,
+            }
+            self.logger.info("BUSY")
+        else:
+            self.cached_current_temperature = self.liconic_interface.current_temperature
+            self.cached_target_temperature = self.liconic_interface.target_temperature
+            self.cached_current_humidity = self.liconic_interface.current_humidity
+            self.cached_target_humidity = self.liconic_interface.target_humidity
+            self.cached_shovel_occupied = self.liconic_interface.shovel_occupied
+            self.cached_transfer_station_occupied = (
+                self.liconic_interface.transfer_station_occupied
+            )
+            self.cached_transfer_station_2_occupied = (
+                self.liconic_interface.transfer_station_2_occupied
+            )
+            self.node_state = {
+                "liconic_status_code": "READY",
+                "current_temperature": self.cached_current_temperature,
+                "target_temperature": self.cached_target_temperature,
+                "current_humidity": self.cached_current_humidity,
+                "target_humidity": self.cached_target_humidity,
+                "shovel_occupied": self.cached_shovel_occupied,
+                "transfer_station_occupied": self.cached_transfer_station_occupied,
+                "transfer_station_2_occupied": (
+                    self.cached_transfer_station_2_occupied
+                ),
+            }
+            self.logger.info("READY")
 
 
-@liconic_module.shutdown()
-def liconic_shutdown(state: State):
-    """Handles cleaning up the Liconic STX object"""
-    if state.liconic is not None:
-        del state.liconic
-
-
-@liconic_module.state_handler()
-def liconic_state_handler(state: State):
-    """Returns the state of the Liconic device and module"""
-    liconic: Optional[Stx] = state.liconic
-    if liconic is None:
-        return ModuleState(
-            status=state.status,
-            error=state.error,
-        )
-    if liconic.is_busy:
-        return ModuleState(
-            status=state.status,
-            error=state.error,
-            current_temperature=state.cached_current_temperature,
-            target_temperature=state.cached_target_temperature,
-            current_humidity=state.cached_current_humidity,
-            target_humidity=state.cached_target_humidity,
-            shovel_occupied=state.cached_shovel_occupied,
-            transfer_station_occupied=state.cached_transfer_station_occupied,
-            transfer_station_2_occupied=state.cached_transfer_station_2_occupied,
-        )
-    else:
-        state.cached_current_temperature = liconic.current_temperature
-        state.cached_target_temperature = liconic.target_temperature
-        state.cached_current_humidity = liconic.current_humidity
-        state.cached_target_humidity = liconic.target_humidity
-        state.cached_shovel_occupied = liconic.shovel_occupied
-        state.cached_transfer_station_occupied = liconic.transfer_station_occupied
-        state.cached_transfer_station_2_occupied = liconic.transfer_station_2_occupied
-        return ModuleState(
-            status=state.status,
-            error=state.error,
-            current_temperature=liconic.current_temperature,
-            target_temperature=liconic.target_temperature,
-            current_humidity=liconic.current_humidity,
-            target_humidity=liconic.target_humidity,
-            shovel_occupied=liconic.shovel_occupied,
-            transfer_station_occupied=liconic.transfer_station_occupied,
-            transfer_station_2_occupied=liconic.transfer_station_2_occupied,
-        )
+# _#_#_#_#OLD_CODE_#_#_#_#_#
 
 
 @liconic_module.action()
@@ -190,7 +212,9 @@ def load_plate(
     if plate_id is not None or plate_id != "":
         try:
             module_resources.find_plate(plate_id)
-            return StepResponse.step_failed(f"Plate with ID {plate_id} already in liconic")
+            return StepResponse.step_failed(
+                f"Plate with ID {plate_id} already in liconic"
+            )
         except ValueError:
             pass
     liconic.load_plate(stacker, slot)

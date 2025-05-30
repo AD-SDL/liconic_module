@@ -1,4 +1,4 @@
-FROM ghcr.io/ad-sdl/wei:v0.5.9
+FROM ghcr.io/ad-sdl/madsci:latest
 
 LABEL org.opencontainers.image.source=https://github.com/AD-SDL/liconic_module
 LABEL org.opencontainers.image.description="Drivers and REST API's for the liconic devices"

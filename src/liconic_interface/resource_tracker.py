@@ -4,8 +4,8 @@ import datetime
 import random
 from pathlib import Path
 
+from madsci.common.types.base_types import BaseModel
 from typing_extensions import Dict, Optional, Tuple, Union
-from wei.types import BaseModel
 
 
 class Slot(BaseModel):

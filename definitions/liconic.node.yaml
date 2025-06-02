@@ -1,0 +1,15 @@
+node_name: liconic
+node_id: 01JWSDN8VBGPKB1PGCYHA6XDK8
+node_url: null
+node_description: A node for liconic device
+node_type: device
+module_name: liconic_module
+module_version: 0.0.1
+capabilities: null
+commands: {}
+is_template: false
+config_defaults:
+  host: localhost
+  port: 3021
+  device: /dev/ttyUSB0
+  resources_path: ~/liconic_temp/resources/

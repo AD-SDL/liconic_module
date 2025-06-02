@@ -8,7 +8,10 @@ from pathlib import Path
 class Stx:
     """A class for interacting with a Liconic incubator device via the Liconic STX library."""
 
-    lib = CDLL(Path(__file__).parent / "libstxlib.so")
+    try:
+        lib = CDLL(Path(__file__).parent / "libstxlib.so")
+    except Exception as e:
+        print(f"Failed to load the STX library: {e}")
 
     def __init__(self, device="/dev/ttyUSB0"):
         """Initializes an STX object for interacting with a Liconic incubator

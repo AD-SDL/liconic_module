@@ -121,7 +121,7 @@ class Stx:
     @property
     def shaker_active(self):
         """Returns whether the shaker is active."""
-        if self._shaker_is_active is None:
+        if not hasattr(self, "_shaker_is_active"):
             self._shaker_is_active = False
         return self._shaker_is_active
 

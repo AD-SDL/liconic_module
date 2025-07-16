@@ -3,9 +3,9 @@
 import datetime
 import random
 from pathlib import Path
+from typing import Dict, Optional, Tuple, Union
 
-from madsci.common.types.base_types import BaseModel
-from typing_extensions import Dict, Optional, Tuple, Union
+from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
 
 class Slot(BaseModel):
@@ -59,7 +59,7 @@ class ResourceTracker:
         """Initialize the resource tracker"""
         if not resource_path:
             self.resource_path = (
-                Path.home() / "liconic_temp/resources/liconic_resources.yaml"
+                Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
             )
         else:
             self.resource_path = Path(resource_path)
@@ -97,10 +97,9 @@ class ResourceTracker:
 
         if not self.resources[stack][slot].occupied:
             raise Exception("No plate in location")
-        else:
-            self.resources[stack][slot] = Slot()
-            # TODO: get elapsed time of plate storage
-            self.update_resource_file()
+        self.resources[stack][slot] = Slot()
+        # TODO: get elapsed time of plate storage
+        self.update_resource_file()
 
     def find_plate(self, plate_id: str) -> Tuple[int, int]:
         """
@@ -110,7 +109,7 @@ class ResourceTracker:
             for slot_key, slot in stack.slots.items():
                 if slot.plate_id == plate_id:
                     return stack_key, slot_key
-        raise Exception("Plate not found")
+        raise ValueError("Plate not found")
 
     def get_next_free_slot(self) -> Tuple[int, int]:
         """
@@ -142,7 +141,7 @@ class ResourceTracker:
         """
         updates the external resource file to match self.resources
         """
-        self.resources.write_yaml(self.resource_path)
+        self.resources.to_yaml(self.resource_path)
 
 
 if __name__ == "__main__":

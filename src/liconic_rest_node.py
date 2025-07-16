@@ -2,15 +2,12 @@
 
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
-from madsci.client.resource_client import ResourceClient
 from madsci.common.types.action_types import ActionFailed, ActionSucceeded
-from madsci.common.types.auth_types import OwnershipInfo
 from madsci.common.types.node_types import RestNodeConfig
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
-from typing_extensions import Annotated
 
 from liconic_interface import Stx
 from liconic_interface.resource_tracker import ResourceTracker
@@ -20,7 +17,9 @@ class LiconicNodeConfig(RestNodeConfig):
     """Configuration for the Liconic REST node"""
 
     device: str = "/dev/ttyUSB0"
-    resources_path: Path = Path.home() / "liconic_temp/resources/liconic_resources.yaml"
+    resources_path: Path = (
+        Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
+    )
 
 
 class LiconicRestNode(RestNode):
@@ -28,33 +27,16 @@ class LiconicRestNode(RestNode):
 
     liconic_interface: Stx = None
     module_resources: ResourceTracker = None
+    config: LiconicNodeConfig = LiconicNodeConfig()
     config_model = LiconicNodeConfig
 
     def startup_handler(self) -> None:
         """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
-        try:
-            if self.config.resource_server_url:
-                self.resource_client = ResourceClient(self.config.resource_server_url)
-                self.resource_owner = OwnershipInfo(
-                    node_id=self.node_definition.node_id
-                )
-
-            else:
-                self.resource_client = None
-
-            self.logger.log("Node initializing...")
-            self.liconic_interface = Stx(self.config.device)
-            self.resources_path = (
-                Path(self.config.resources_path).expanduser().resolve()
-            )
-            self.module_resources = ResourceTracker(self.resources_path)
-
-        except Exception as err:
-            self.logger.log_error(f"Error starting the Liconic Node: {err}")
-            self.startup_has_run = False
-        else:
-            self.startup_has_run = True
-            self.logger.log("Liconic node initialized!")
+        self.logger.log("Node initializing...")
+        self.logger.log_info(f"Using device: {self.config.device}")
+        self.liconic_interface = Stx(self.config.device)
+        self.resources_path = Path(self.config.resources_path).expanduser().resolve()
+        self.module_resources = ResourceTracker(self.resources_path)
 
     def shutdown_handler(self) -> None:
         """Called to shutdown the node. Should be used to close connections to devices or release any other resources."""
@@ -202,11 +184,19 @@ class LiconicRestNode(RestNode):
     def begin_shake(self, shaker_speed: Annotated[int, "shaker speed"]):
         """Activate the shaker in the liconic at the specified 'shaker_speed'"""
         try:
-            if not shaker_speed == self.liconic_interface.shaker_speed:
+            if (
+                self.liconic_interface.shaker_active
+                and shaker_speed != self.liconic_interface.shaker_speed
+            ):
                 """already shaking but not at the desired speed"""
                 self.liconic_interface.shaker_active = False
                 self.liconic_interface.shaker_speed = shaker_speed
                 self.liconic_interface.shaker_active = True
+                time.sleep(2)
+            else:  # not shaking
+                self.liconic_interface.shaker_speed = shaker_speed
+                self.liconic_interface.shaker_active = True
+                time.sleep(2)
         except Exception as err:
             self.logger.log_error(f"Error starting shaker: {err}")
             return ActionFailed(errors=str(err))
@@ -274,9 +264,9 @@ class LiconicRestNode(RestNode):
         slot: Annotated[Optional[int], "slot number"] = None,
     ):
         """Unload a plate from the incubator"""
-        if stacker is None or slot is None and plate_id is not None:
+        if stacker is None or (slot is None and plate_id is not None):
             # * Get location based on plate id
-            stacker, slot = self.module_resources.find_plate(plate_id)
+            stacker, slot = self.module_resources.find_plate(str(plate_id))
 
         if self.liconic_interface.transfer_station_occupied:
             self.logger.log_error(
@@ -285,29 +275,23 @@ class LiconicRestNode(RestNode):
             return ActionFailed(
                 errors="Transfer station occupied, please clear it before unloading."
             )
-        if not self.module_resources.is_location_occupied(stacker, slot):
-            if not self.liconic_interface.slot_occupied(stacker, slot):
-                self.logger.log_error("No plate in location, can't unload.")
-                return ActionFailed(errors="No plate in location, can't unload.")
-        if plate_id is None:
-            plate_id = self.module_resources.get_plate_id(stacker, slot)
         self.liconic_interface.unload_plate(stacker, slot)
         while self.liconic_interface.is_busy:
             time.sleep(1)
         if self.liconic_interface.transfer_station_occupied:
-            self.module_resources.remove_plate(
-                plate_id=plate_id, stack=stacker, slot=slot
-            )
+            if plate_id:
+                self.module_resources.remove_plate(
+                    plate_id=plate_id, stack=stacker, slot=slot
+                )
             return ActionSucceeded(
                 data={
                     "message": f"Plate unloaded from liconic stack {stacker}, slot {slot}"
                 }
             )
-        else:
-            self.logger.log_error("Failed to unload plate from liconic")
-            return ActionFailed(
-                errors=f"Failed to unload plate from liconic stack {stacker}, slot {slot}"
-            )
+        self.logger.log_error("Failed to unload plate from liconic")
+        return ActionFailed(
+            errors=f"Failed to unload plate from liconic stack {stacker}, slot {slot}"
+        )
 
 
 if __name__ == "__main__":

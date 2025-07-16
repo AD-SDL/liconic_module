@@ -4,6 +4,7 @@ services:
     container_name: liconic_module
     image: ghcr.io/ad-sdl/liconic_module
     network_mode: host
+    privileged: true
     environment:
       - USER_ID=${USER_ID:-1000}
       - GROUP_ID=${GROUP_ID:-1000}
@@ -13,7 +14,7 @@ services:
       tags:
         - ghcr.io/ad-sdl/liconic_module:latest
         - ghcr.io/ad-sdl/liconic_module:dev
-    command: python -m liconic_rest_node
-    # --port 2010 --device ${DEVICE} --resources_path ${RESOURCES_PATH}
+    command: python -m liconic_rest_node --node_url http://potts.cels.anl.gov:2003 --device /dev/ttyUSB0 --node_definition definitions/liconic_lisa.node.yaml
     volumes:
       - ./definitions:/home/madsci/definitions/
+      - /dev:/dev

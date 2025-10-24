@@ -3,6 +3,7 @@
 import datetime
 import logging
 import socket
+import threading
 
 """
 TODOs:
@@ -10,7 +11,9 @@ TODOs:
 - determine load and unload stacks with plate type in module!
 - what is a soft reset vs regular reset?
 - check that log file ends up in a good spot
-- implement get_system_status method
+- edit liconic resoures to format from CassetteConfiguration.xml
+- figure out how to interpret system status
+
 """
 
 class LICONIC:
@@ -18,8 +21,8 @@ class LICONIC:
 
     def __init__(
         self,
-        port: int = 3333,
-        host: str = "localhost",
+        host: str = "localhost",  # TODO: do I need to rename this?
+        port: int = 3333,    # TODO: do I need to rename this?
     )-> socket.socket:
         """Creates LiCONiC interface and connects to the device."""
 
@@ -30,6 +33,7 @@ class LICONIC:
             level=logging.DEBUG,
             format="%(asctime)s %(levelname)s %(name)s %(message)s",
         )
+        self.lock = threading.Lock()
 
         # connection parameters
         self.port = port
@@ -48,48 +52,55 @@ class LICONIC:
 
     def connect(self) -> None:
         """Connects to the Liconic device and initializes it if necessary."""
-        server_address = (self.host, self.port)
-        c_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        c_socket.connect(server_address)
-        self.c_socket = c_socket
+        with self.lock:
+            server_address = (self.host, self.port)
+            c_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            c_socket.connect(server_address)
+            self.c_socket = c_socket
 
     def disconnect(self) -> None:
         """Disconnects from the Liconic device."""
         if self.c_socket:
-            self.c_socket.close()
-            self.c_socket = None
+            with self.lock:
+                self.c_socket.close()
+                self.c_socket = None
 
     def activate(self) -> None:
         """Opens serial communication and initializes the StoreX incubator."""
-        self.logger.debug(f"{datetime.datetime.now()} - Activating Liconic")
-        self.c_socket.send(f"STX2Activate({self.device_ID})\r".encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Activating Liconic")
+            self.c_socket.send(f"STX2Activate({self.device_ID})\r".encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def deactivate(self) -> None:
         """
         Closes serial communication with the StoreX incubator.
         Empty feedback response expected.
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Deactivating Liconic")
-        self.c_socket.send(f"STX2Deactivate({self.device_ID})\r".encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        if self.c_socket:
+            with self.lock:
+                self.logger.debug(f"{datetime.datetime.now()} - Deactivating Liconic")
+                self.c_socket.send(f"STX2Deactivate({self.device_ID})\r".encode())
+                feedback = self.c_socket.recv(1024).decode().strip()
+                self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def reset(self) -> None:
         """Resets the StoreX incubator. Empty feedback response expected."""
-        self.logger.debug(f"{datetime.datetime.now()} - Resetting Liconic")
-        self.c_socket.send(f"STX2Reset({self.device_ID})\r".encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Resetting Liconic")
+            self.c_socket.send(f"STX2Reset({self.device_ID})\r".encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def soft_reset(self) -> None:
         # WHAT IS A SOFT RESET???
         """Performs a soft reset of the StoreX incubator. Empty feedback response expected."""
-        self.logger.debug(f"{datetime.datetime.now()} - Performing soft reset of Liconic")
-        self.c_socket.send(f"STX2SoftReset({self.device_ID})\r".encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Performing soft reset of Liconic")
+            self.c_socket.send(f"STX2SoftReset({self.device_ID})\r".encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
 
     # CLIMATE CONTROL METHODS
@@ -104,14 +115,15 @@ class LICONIC:
             [2]= CO2 concentration (ppm)
             [3]= N2 concentration (%)
         """
-        actual_climate = []
-        self.logger.debug(f"{datetime.datetime.now()} - Reading actual climate")
-        self.c_socket.send(f"STX2ReadActualClimate({self.device_ID})\r".encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        actual_climate = feedback.split(";")
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        self.logger.debug(f"{datetime.datetime.now()} - Actual Climate Data: {actual_climate}")
-        return actual_climate
+        with self.lock:
+            actual_climate = []
+            self.logger.debug(f"{datetime.datetime.now()} - Reading actual climate")
+            self.c_socket.send(f"STX2ReadActualClimate({self.device_ID})\r".encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            actual_climate = feedback.split(";")
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            self.logger.debug(f"{datetime.datetime.now()} - Actual Climate Data: {actual_climate}")
+            return actual_climate
 
     def write_set_climate(
         self, temperature: float = 37.0,
@@ -129,11 +141,12 @@ class LICONIC:
             co2 (float): Desired CO2 concentration in ppm.
             n2 (float): Desired N2 concentration in %.
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Writing set climate")
-        command = f"STX2WriteSetClimate({self.device_ID},{temperature},{humidity},{co2},{n2})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Writing set climate")
+            command = f"STX2WriteSetClimate({self.device_ID},{temperature},{humidity},{co2},{n2})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def read_set_climate(self) -> list[float]:
         """
@@ -146,14 +159,15 @@ class LICONIC:
             [2]= CO2 concentration (ppm)
             [3]= N2 concentration (%)
         """
-        set_climate = []
-        self.logger.debug(f"{datetime.datetime.now()} - Reading set climate")
-        self.c_socket.send(f"STX2ReadSetClimate({self.device_ID})\r".encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        set_climate = feedback.split(";")
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        self.logger.debug(f"{datetime.datetime.now()} - Set Climate Data: {set_climate}")
-        return set_climate
+        with self.lock:
+            set_climate = []
+            self.logger.debug(f"{datetime.datetime.now()} - Reading set climate")
+            self.c_socket.send(f"STX2ReadSetClimate({self.device_ID})\r".encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            set_climate = feedback.split(";")
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            self.logger.debug(f"{datetime.datetime.now()} - Set Climate Data: {set_climate}")
+            return set_climate
 
 
     # SHAKER CONTROL METHODS
@@ -172,11 +186,12 @@ class LICONIC:
         if speed < 0 or speed > 50:
             raise ValueError("speed must be between 0 and 50 rpm.")
 
-        self.logger.debug(f"{datetime.datetime.now()} - Activating shaker")
-        command = f"STX2ActivateShaker({self.device_ID},{shaker_id},{speed})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Activating shaker")
+            command = f"STX2ActivateShaker({self.device_ID},{shaker_id},{speed})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def deactivate_shaker(self, shaker_id: int = 1) -> None:
         """
@@ -186,11 +201,12 @@ class LICONIC:
         Args:
             shaker_id (int): shaker iD (1 or 2).
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Deactivating shaker")
-        command = f"STX2DeactivateShaker({self.device_ID},{shaker_id})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Deactivating shaker")
+            command = f"STX2DeactivateShaker({self.device_ID},{shaker_id})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def read_set_shaker_speed(self, shaker_id: int = 1) -> int:  # NOT TESTED
         """
@@ -202,12 +218,13 @@ class LICONIC:
         Returns:
             int: The set speed of the specified shaker in rpm. Returns -1 if error.
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Reading set shaker speed")
-        command = f"STX2ReadSetShakerSpeed({self.device_ID},{shaker_id})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        return int(feedback)
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Reading set shaker speed")
+            command = f"STX2ReadSetShakerSpeed({self.device_ID},{shaker_id})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            return int(feedback)
 
     def set_shaker_speed(self, shaker_id: int = 1, speed: int = 20) -> None:
         """
@@ -224,11 +241,12 @@ class LICONIC:
         if speed < 0 or speed > 50:
             raise ValueError("speed must be between 0 and 50 rpm.")
 
-        self.logger.debug(f"{datetime.datetime.now()} - Setting shaker speed")
-        command = f"STX2SetShakerSpeed({self.device_ID},{shaker_id},{speed})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Setting shaker speed")
+            command = f"STX2SetShakerSpeed({self.device_ID},{shaker_id},{speed})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
 
     # LOAD AND UNLOAD METHODS
@@ -249,12 +267,13 @@ class LICONIC:
                 -4 - wrong value of a target position
                 -5 - error loading a plate
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Loading plate into stack {stack}, slot {slot}")
-        command = f"STX2LoadPlate({self.device_ID},{stack},{slot})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        return feedback
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Loading plate into stack {stack}, slot {slot}")
+            command = f"STX2LoadPlate({self.device_ID},{stack},{slot})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            return feedback
 
     def unload_plate(self, stack: int, slot: int) -> int:
         """
@@ -273,12 +292,13 @@ class LICONIC:
                 -4 - wrong value of a target position
                 -5 - error unloading a plate
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Unloading plate from stack {stack}, slot {slot}")
-        command = f"STX2UnloadPlate({self.device_ID},{stack},{slot})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        return feedback
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Unloading plate from stack {stack}, slot {slot}")
+            command = f"STX2UnloadPlate({self.device_ID},{stack},{slot})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            return feedback
 
 
     # SENSOR AND ERROR METHODS
@@ -292,20 +312,22 @@ class LICONIC:
                 1 - plate detected
                 -1 - error
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Reading transfer station detector")
-        command = f"STX2ReadXferStationDetector1({self.device_ID})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        return int(feedback)
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Reading transfer station detector")
+            command = f"STX2ReadXferStationDetector1({self.device_ID})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            return int(feedback)
 
     def beeper_off(self) -> None:
         """Turns off the beeper. Blank feedback response expected."""
-        self.logger.debug(f"{datetime.datetime.now()} - Turning beeper off")
-        command = f"STX2BeeperOff({self.device_ID})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Turning beeper off")
+            command = f"STX2BeeperOff({self.device_ID})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
     def get_system_status(self) -> str:
         """
@@ -316,12 +338,13 @@ class LICONIC:
 
         # TODO: figure out how to interpret the system status
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Getting system status")
-        command = f"STX2GetSysStatus({self.device_ID})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        return feedback
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Getting system status")
+            command = f"STX2GetSysStatus({self.device_ID})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            return feedback
 
     def read_error_code(self) -> int:
         """
@@ -330,12 +353,21 @@ class LICONIC:
         Returns:
             int: The current error code. 0 if no error, -1 if error.
         """
-        self.logger.debug(f"{datetime.datetime.now()} - Reading error code")
-        command = f"STX2ReadErrorCode({self.device_ID})\r"
-        self.c_socket.send(command.encode())
-        feedback = self.c_socket.recv(1024).decode().strip()
-        self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-        return int(feedback)
+        with self.lock:
+            self.logger.debug(f"{datetime.datetime.now()} - Reading error code")
+            command = f"STX2ReadErrorCode({self.device_ID})\r"
+            self.c_socket.send(command.encode())
+            feedback = self.c_socket.recv(1024).decode().strip()
+            self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
+            return int(feedback)
+
+    @ property
+    def is_busy(self) -> bool:
+        """Returns whether the incubator is busy.
+        TODO: is there a way to ask the device if it is busy???"""
+        return bool(self.lock.locked())
+
+
 
 
 if __name__ == "__main__":

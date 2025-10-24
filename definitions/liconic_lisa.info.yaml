@@ -173,9 +173,9 @@ config:
   update_node_files: true
   status_update_interval: 2.0
   state_update_interval: 2.0
-  node_url: http://potts.cels.anl.gov:2003/
+  node_url: http://hudson01.cels.anl.gov:2005/
   uvicorn_kwargs: {}
-  device: /dev/ttyUSB0
+  # device: /dev/ttyUSB0
   resources_path: /home/madsci/.madsci/liconic/liconic_resources.yaml
 config_schema:
   description: Configuration for the Liconic REST node
@@ -235,10 +235,10 @@ config_schema:
       description: Configuration for the Uvicorn server that runs the REST API.
       title: Uvicorn Configuration
       type: object
-    device:
-      default: /dev/ttyUSB0
-      title: Device
-      type: string
+    # device:
+    #   default: /dev/ttyUSB0
+    #   title: Device
+    #   type: string
     resources_path:
       default: /home/madsci/.madsci/liconic/liconic_resources.yaml
       format: path

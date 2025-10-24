@@ -4,7 +4,7 @@ version = "0.4.0"
 description = "Software for automatting a Liconic device"
 authors = [
     {name = "Ryan D. Lewis", email="ryan.lewis@anl.gov"},
-    {name = "Rafael Vescovi", email="ravescovi@anl.gov"},
+    {name = "Casey Stone", email="cstone@anl.gov"},
     {name = "Doga Ozgulbas", email="dozgulbas@anl.gov"},
     {name = "Abe Stroka", email="astroka@anl.gov"},
     {name = "Kyle Hippe", email = "khippe@anl.gov"},
@@ -12,7 +12,6 @@ authors = [
 ]
 dependencies = [
     "madsci.node_module>=0.4.3",
-    "open-liconic-stx==0.1.0",
 ]
 requires-python = ">=3.9.21"
 readme = "README.md"

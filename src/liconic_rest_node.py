@@ -13,11 +13,27 @@ from liconic_interface.liconic_interface import LICONIC
 from liconic_interface.resource_tracker import ResourceTracker
 
 
+"""
+TODOs:
+
+- What's the best way to set node_url?
+- Can arguments in the dashboard appear in the same order as code function arguments?
+     - they seem to be alphabetical right now which is confusing
+- Construct resource path from cassette config file!
+    - FOR NOW!!! just edit existing file!  - DONE! (resource tracker edited to specify slot number per stack)
+
+"""
+
+
 class LiconicNodeConfig(RestNodeConfig):
     """Configuration for the Liconic REST node"""
 
-    port: int = 3333
-    host: str = "localhost"
+    liconic_driver_port: int = 3333
+    liconic_driver_host: str = "localhost"
+    liconic_driver_cassette_config: str = "C:\\Liconic\\stxdriver_64bit\\DriverConfig\\Devices\\CassettesConfig1.xml"
+    node_url: str = "http://hudson01.cels.anl.gov:2005/"
+
+    # TODO: construct contents of this resource path from cassette config file
     resources_path: Path = (
         Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
     )
@@ -34,10 +50,8 @@ class LiconicRestNode(RestNode):
     def startup_handler(self) -> None:
         """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
         self.logger.log("Node initializing...")
-        self.logger.log_info(f"Using host: {self.config.host}, port: {self.config.port}")
-        print("Initializing Liconic Interface...")   # TESTING
-        print(f"Host: {self.config.host}, Port: {self.config.port}")   # TESTING
-        self.liconic_interface = LICONIC(self.config.host, self.config.port)
+        self.logger.log_info(f"Using host: {self.config.liconic_driver_host}, port: {self.config.liconic_driver_port}")# TESTING
+        self.liconic_interface = LICONIC(self.config.liconic_driver_host, self.config.liconic_driver_port)
         self.resources_path = Path(self.config.resources_path).expanduser().resolve()
         self.module_resources = ResourceTracker(self.resources_path)
 
@@ -222,9 +236,10 @@ class LiconicRestNode(RestNode):
     @action(name="load_plate", description="Load a plate into the incubator")
     def load_plate(
         self,
-        # plate_id: Annotated[str, "plate id"],
-        stack: Annotated[Optional[int], "stack number (1-4)"] = None,
-        slot: Annotated[Optional[int], "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4)"] = None,
+        plate_type: Annotated[str, "plate type (flat_bottom_96well, deep_96well, etc.)"],
+        plate_id: Annotated[Optional[str], "plate id"],
+        stack: Annotated[Optional[int], "stack number (1-4), must also spexify slot"] = None,
+        slot: Annotated[Optional[int], "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4, must also specify stack)"] = None,
     ):
         """Load a plate into the incubator"""
 
@@ -234,13 +249,23 @@ class LiconicRestNode(RestNode):
         # - if there's no plate in the transfer station
         # - if the plate id is already in the resources or not specified
 
+        # validate plate type
+        if not self.module_resources.is_valid_plate_type(plate_type):
+            self.logger.log_error(
+                f"load_plate command cannot be completed, invalid plate type: {plate_type}"
+            )
+            return ActionFailed(
+                errors=f"load_plate command cannot be completed, invalid plate type: {plate_type}"
+            )
+
+        # find next free slot if none specified
+        if stack is None or slot is None:
+            stack, slot = self.module_resources.get_next_free_slot()
+
         self.liconic_interface.load_plate(stack=stack,slot=slot)
         return ActionSucceeded(
             data={"message": f"Plate loaded into liconic stack {stack}, slot {slot}"}
         )
-
-
-
 
         # if stacker is None or slot is None:
         #     stacker, slot = self.module_resources.get_next_free_slot()
@@ -276,42 +301,55 @@ class LiconicRestNode(RestNode):
         #     data={"message": f"Plate loaded into liconic stack {stacker}, slot {slot}"}
         # )
 
-    # @action(name="unload_plate", description="Unload a plate from the incubator")
-    # def unload_plate(
-    #     self,
-    #     plate_id: Annotated[Optional[str], "plate id"] = None,
-    #     stacker: Annotated[Optional[int], "stacker number"] = None,
-    #     slot: Annotated[Optional[int], "slot number"] = None,
-    # ):
-    #     """Unload a plate from the incubator"""
-    #     if stacker is None or (slot is None and plate_id is not None):
-    #         # * Get location based on plate id
-    #         stacker, slot = self.module_resources.find_plate(str(plate_id))
+    @action(name="unload_plate", description="Unload a plate from the incubator")
+    def unload_plate(
+        self,
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+        stack: Annotated[Optional[int], "stacker number (1-4)"] = None,
+        slot: Annotated[Optional[int], "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4)"] = None,
+    ):
+        """Unload a plate from the incubator"""
 
-    #     if self.liconic_interface.transfer_station_occupied:
-    #         self.logger.log_error(
-    #             "Transfer station occupied, please clear it before unloading."
-    #         )
-    #         return ActionFailed(
-    #             errors="Transfer station occupied, please clear it before unloading."
-    #         )
-    #     self.liconic_interface.unload_plate(stacker, slot)
-    #     while self.liconic_interface.is_busy:
-    #         time.sleep(1)
-    #     if self.liconic_interface.transfer_station_occupied:
-    #         if plate_id:
-    #             self.module_resources.remove_plate(
-    #                 plate_id=plate_id, stack=stacker, slot=slot
-    #             )
-    #         return ActionSucceeded(
-    #             data={
-    #                 "message": f"Plate unloaded from liconic stack {stacker}, slot {slot}"
-    #             }
-    #         )
-    #     self.logger.log_error("Failed to unload plate from liconic")
-    #     return ActionFailed(
-    #         errors=f"Failed to unload plate from liconic stack {stacker}, slot {slot}"
-    #     )
+        # catch all possible errors
+        # - if no stack and slot specified, if they are the wrong values
+        # - if there's a plate already there according to the resources
+        # - if there's no plate in the transfer station at the end of action
+        # - if there is no plate with the specified plate id
+
+        self.liconic_interface.unload_plate(stack=stack,slot=slot)
+        return ActionSucceeded(
+            data={"message": f"Plate unloaded from liconic stack {stack}, slot {slot}"}
+        )
+
+        # """Unload a plate from the incubator"""
+        # if stack is None or (slot is None and plate_id is not None):
+        #     # * Get location based on plate id
+        #     stacker, slot = self.module_resources.find_plate(str(plate_id))
+
+        # if self.liconic_interface.transfer_station_occupied:
+        #     self.logger.log_error(
+        #         "Transfer station occupied, please clear it before unloading."
+        #     )
+        #     return ActionFailed(
+        #         errors="Transfer station occupied, please clear it before unloading."
+        #     )
+        # self.liconic_interface.unload_plate(stacker, slot)
+        # while self.liconic_interface.is_busy:
+        #     time.sleep(1)
+        # if self.liconic_interface.transfer_station_occupied:
+        #     if plate_id:
+        #         self.module_resources.remove_plate(
+        #             plate_id=plate_id, stack=stacker, slot=slot
+        #         )
+        #     return ActionSucceeded(
+        #         data={
+        #             "message": f"Plate unloaded from liconic stack {stack}, slot {slot}"
+        #         }
+        #     )
+        # self.logger.log_error("Failed to unload plate from liconic")
+        # return ActionFailed(
+        #     errors=f"Failed to unload plate from liconic stack {stack}, slot {slot}"
+        # )
 
 
 if __name__ == "__main__":

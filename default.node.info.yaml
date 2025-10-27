@@ -27,9 +27,42 @@ actions:
     name: load_plate
     description: Load a plate into the incubator
     args:
+      plate_id:
+        name: plate_id
+        description: plate id
+        argument_type: str
+        required: true
+        default: null
       stack:
         name: stack
         description: stack number (1-4)
+        argument_type: int
+        required: false
+        default: null
+      slot:
+        name: slot
+        description: slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4)
+        argument_type: int
+        required: false
+        default: null
+    locations: {}
+    files: {}
+    results: {}
+    blocking: false
+    asynchronous: true
+  unload_plate:
+    name: unload_plate
+    description: Unload a plate from the incubator
+    args:
+      plate_id:
+        name: plate_id
+        description: plate id
+        argument_type: str
+        required: false
+        default: null
+      stack:
+        name: stack
+        description: stacker number (1-4)
         argument_type: int
         required: false
         default: null
@@ -50,10 +83,11 @@ config:
   update_node_files: true
   status_update_interval: 2.0
   state_update_interval: 2.0
-  node_url: http://127.0.0.1:2000/
+  node_url: http://hudson01.cels.anl.gov:2005/
   uvicorn_kwargs: {}
-  port: 3333
-  host: localhost
+  liconic_driver_port: 3333
+  liconic_driver_host: localhost
+  liconic_driver_cassette_config: C:\Liconic\stxdriver_64bit\DriverConfig\Devices\CassettesConfig1.xml
   resources_path: C:\Users\svcaibio\.madsci\liconic\liconic_resources.yaml
 config_schema:
   description: Configuration for the Liconic REST node
@@ -101,25 +135,25 @@ config_schema:
       description: The interval in seconds at which the node should update its state.
       title: State Update Interval
     node_url:
-      default: http://127.0.0.1:2000/
-      description: The URL used to communicate with the node. This is the base URL
-        for the REST API.
-      format: uri
-      minLength: 1
-      title: Node URL
+      default: http://hudson01.cels.anl.gov:2005/
+      title: Node Url
       type: string
     uvicorn_kwargs:
       additionalProperties: true
       description: Configuration for the Uvicorn server that runs the REST API.
       title: Uvicorn Configuration
       type: object
-    port:
+    liconic_driver_port:
       default: 3333
-      title: Port
+      title: Liconic Driver Port
       type: integer
-    host:
+    liconic_driver_host:
       default: localhost
-      title: Host
+      title: Liconic Driver Host
+      type: string
+    liconic_driver_cassette_config:
+      default: C:\Liconic\stxdriver_64bit\DriverConfig\Devices\CassettesConfig1.xml
+      title: Liconic Driver Cassette Config
       type: string
     resources_path:
       default: C:\Users\svcaibio\.madsci\liconic\liconic_resources.yaml

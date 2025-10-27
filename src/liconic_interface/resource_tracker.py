@@ -1,12 +1,17 @@
 """Provides a plate tracking class for managing the Liconic's storage"""
 
 import datetime
-import random
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Optional, Union, dict
 
+from labware_definitions import plate_definitions
 from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
+"""
+TODOs:
+- be consistent with naming conventions for labware definitions vs plate definitions
+- add functionality to return elapsed time of plate storage
+"""
 
 class Slot(BaseModel):
     """Defines the structure of a slot"""
@@ -18,36 +23,48 @@ class Slot(BaseModel):
 
 class Stack(BaseModel):
     """Defines the structure of a stack"""
+    slots: dict[int, Slot] = {}
 
-    slots: Dict[int, Slot] = {slot: Slot() for slot in range(1, 23)}
+    def __init__(self, num_slots: int = 22, **data) -> None:
+        if "slots" not in data:
+            data["slots"] = {slot: Slot() for slot in range(1, num_slots + 1)}
+        super().__init__(**data)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> Slot:
         """Get a slot in the stack"""
         return self.slots[item]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: int, value: Slot) -> None:
         """Set a slot in the stack"""
         self.slots[key] = value
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: int) -> None:
         """Delete a slot in the stack"""
         del self.slots[key]
 
 
 class ResourceFile(BaseModel):
     """Defines the structure of the resource file"""
+    stacks: dict[int, Stack] = {}   # TESTING PURPOSES
 
-    stacks: Dict[int, Stack] = {stack: Stack() for stack in range(1, 5)}
+    def model_post_init(self, __context: any) -> None:
+        if not self.stacks:
+            self.stacks = {
+                1: Stack(num_slots=22),
+                2: Stack(num_slots=22),
+                3: Stack(num_slots=10),
+                4: Stack(num_slots=10),
+            }
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> Stack:
         """Get a stack in the resource file"""
         return self.stacks[item]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: int, value: Stack) -> None:
         """Set a stack in the resource file"""
         self.stacks[key] = value
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: int) -> None:
         """Delete a stack in the resource file"""
         del self.stacks[key]
 
@@ -55,8 +72,12 @@ class ResourceFile(BaseModel):
 class ResourceTracker:
     """Tracks the plate resources of a Liconic incubator"""
 
-    def __init__(self, resource_path: Optional[Union[Path, str]] = None):
+    def __init__(self, resource_path: Optional[Union[Path, str]] = None) -> None:
         """Initialize the resource tracker"""
+        # Load labware definitions
+        self.labware_definitions = plate_definitions   # TODO: be more consistent with naming!
+
+        # Set up the resource file path
         if not resource_path:
             self.resource_path = (
                 Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
@@ -71,16 +92,31 @@ class ResourceTracker:
             self.update_resource_file()
 
     def add_plate(
-        self, plate_id, stack=None, slot=None
-    ):  # TODO: add parameter for identifying plate type if we have multiple types of stacks in liconic
+        self,
+        plate_type: str,
+        plate_id: str,
+        stack: Optional[int] = None,
+        slot: Optional[int] = None,
+    ) -> None:
         """
         updates the liconic resource file when a new plate is placed into the liconic
+
+        TODO: there's a possibility here that the user specifies stack but not slot. The program
+        will then ignore the desired stack and place it in the next free balanced slot.
+        This might not be a bad thing...
         """
+
+        # TODO: are these necessary?
+        stack = int(stack) if stack is not None else None
+        slot = int(slot) if slot is not None else None
+
         if stack is not None and slot is not None:
+            if stack not in self.find_valid_stack(plate_type):
+                raise ValueError(f"Invalid slot {slot} for plate type {plate_type}")
             if self.is_location_occupied(stack, slot):
                 raise Exception("Location already occupied")
         else:
-            stack, slot = self.get_next_free_slot()
+            stack, slot = self.get_next_free_slot(plate_type=plate_type)
         self.resources[stack][slot] = Slot(
             occupied=True,
             plate_id=plate_id,
@@ -88,20 +124,30 @@ class ResourceTracker:
         )
         self.update_resource_file()
 
-    def remove_plate(self, plate_id=None, stack=None, slot=None):
+    def remove_plate(
+        self,
+        plate_id: Optional[str] = None,
+        stack: Optional[int] = None,
+        slot: Optional[int] = None
+    ) -> None:
         """
         locates and removes the given plate from the resource file
         """
-        if stack is None or slot is None:
+        # check that user provided enough information
+        if plate_id is None and stack is None and slot is None:
+            raise ValueError("Must specify plate_id or stack and slot to remove a plate")
+        if plate_id is None and (stack is None or slot is None):
+            raise ValueError("Must specify both stack and slot to remove a plate by location")
+        # find plate if only plate_id is given
+        if plate_id and (stack is None or slot is None):
             stack, slot = self.find_plate(plate_id)
-
         if not self.resources[stack][slot].occupied:
             raise Exception("No plate in location")
         self.resources[stack][slot] = Slot()
         # TODO: get elapsed time of plate storage
         self.update_resource_file()
 
-    def find_plate(self, plate_id: str) -> Tuple[int, int]:
+    def find_plate(self, plate_id: str) -> tuple[int, int]:
         """
         returns the stack and slot a plate is located on, given the plate id
         """
@@ -111,19 +157,46 @@ class ResourceTracker:
                     return stack_key, slot_key
         raise ValueError("Plate not found")
 
-    def get_next_free_slot(self) -> Tuple[int, int]:
+    def get_next_free_slot(self, plate_type: str) -> tuple[int, int]:
         """
         if no stack and shelf is passed into add_plate, return the next free location
+
+        Behavior:
+           - all microplates ("flat_bottom_96well") will be loaded into stacks 1 and 2
+           - all deepwell plates ("deep_96well") will be loaded into stacks 3 and 4
+
+           stacks will alternate between 1 and 2 (or 3 and 4) to balance shakers
         """
-        stack_keys = list(self.resources.stacks.keys())
-        random.shuffle(
-            stack_keys
-        )  # * randomize the order of the stacks to prevent the same stack from always being used
-        for stack_key in stack_keys:
-            for slot_key in self.resources[stack_key].slots.keys():
-                if not self.resources[stack_key][slot_key].occupied:
-                    return stack_key, slot_key
-        raise Exception("No free slots available")
+
+        candidate_stacks = self.find_valid_stack(plate_type)
+        if candidate_stacks:
+
+            # Get occupancy count for each stack in the group
+            stack_occupancy = {}
+            for stack_id in candidate_stacks:
+                stack = self.resources.stacks[(stack_id)]
+                occupied_count = sum(1 for slot in stack.slots.values() if slot.occupied)
+                stack_occupancy[stack_id] = occupied_count
+
+            # Pick the stack with fewer occupied slots (to balance load)
+            # If tied, pick the lower-numbered stack
+            stack_to_use = min(stack_occupancy, key=lambda s: (stack_occupancy[s], s))
+
+            # Find the lowest-numbered free slot in that stack
+            for slot_id_str, slot in sorted(self.resources.stacks[(stack_to_use)].slots.items(), key=lambda x: int(x[0])):
+                if not slot.occupied:
+                    return stack_to_use, int(slot_id_str)
+
+            # If the chosen stack is full, try the other one
+            for alt_stack_id in candidate_stacks:
+                if alt_stack_id == stack_to_use:
+                    continue
+                for slot_id_str, slot in sorted(self.resources.stacks[str(alt_stack_id)].slots.items(), key=lambda x: int(x[0])):
+                    if not slot.occupied:
+                        return alt_stack_id, int(slot_id_str)
+
+            raise Exception(f"No free slots available for plate type '{plate_type}'")
+        raise Exception(f"No valid stacks found for plate type '{plate_type}'")
 
     def is_location_occupied(self, stack: int, slot: int) -> bool:
         """
@@ -143,6 +216,18 @@ class ResourceTracker:
         """
         self.resources.to_yaml(self.resource_path)
 
+    def find_valid_stack(self, plate_type: str) -> list[int]:
+        """
+        returns a list of valid stacks for the given plate type
+        """
+        valid_stacks = []
+        if plate_type not in self.labware_definitions:
+            raise ValueError(f"Unsupported plate type: {plate_type}")
+        if plate_type == "flat_bottom_96well":
+            valid_stacks = [1, 2]
+        if plate_type == "deep_96well":
+            valid_stacks = [3, 4]
+        return valid_stacks
 
 if __name__ == "__main__":
     test = ResourceTracker()

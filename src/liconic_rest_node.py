@@ -21,6 +21,7 @@ TODOs:
      - they seem to be alphabetical right now which is confusing
 - Construct resource path from cassette config file!
     - FOR NOW!!! just edit existing file!  - DONE! (resource tracker edited to specify slot number per stack)
+- Don't need logic to check user input in both the resource handler and the liconic test node...
 
 """
 
@@ -245,11 +246,11 @@ class LiconicRestNode(RestNode):
 
         # catch all possible errors
         # - if no stack and slot specified, if they are the wrong values
-        # - if there's a plate alread there according to the resources
-        # - if there's no plate in the transfer station
-        # - if the plate id is already in the resources or not specified
+        # - if there's a plate alread there according to the resources - DONE
+        # - if there's no plate in the transfer station - DONE
+        # - if the plate id is already in the resources or not specified - DONE
 
-        # validate plate type
+        # validate plate type - required argument
         if not self.module_resources.is_valid_plate_type(plate_type):
             self.logger.log_error(
                 f"load_plate command cannot be completed, invalid plate type: {plate_type}"
@@ -257,49 +258,70 @@ class LiconicRestNode(RestNode):
             return ActionFailed(
                 errors=f"load_plate command cannot be completed, invalid plate type: {plate_type}"
             )
+        
+        # check user entered arguments
+        if (stack is not None and slot is None) or (stack is None and slot is not None):
+            self.logger.log_error(
+                "load_plate command cannot be completed, must specify both stack and slot for loading plate into specific location."
+            )
+            return ActionFailed(
+                errors="load_plate command cannot be completed, must specify both stack and slot for loading plate into specific location."
+            )
+        
+        # check that user entered stack and slot 
+        if stack is not None and slot is not None:
+            # check that stack and slot values are valid for configuration
+            # TODO!
 
+            # check that the stack is valid for the specified plate type
+            if stack not in self.module_resources.find_valid_stack(plate_type=plate_type):
+                self.logger.log_error(
+                    f"load_plate command cannot be completed, stack {stack} is not valid for plate type {plate_type}"
+                )
+                return ActionFailed(
+                    errors=f"load_plate command cannot be completed, stack {stack} is not valid for plate type {plate_type}"
+                )
+
+            # check that the location is not already occupied
+            if self.module_resources.is_location_occupied(stack, slot):
+                self.logger.log_error(
+                    "load_plate command cannot be completed, already plate in given position"
+                )
+                return ActionFailed(
+                    errors="load_plate command cannot be completed, already plate in given position"
+                )
+            
         # find next free slot if none specified
-        if stack is None or slot is None:
+        if stack is None and slot is None:
             stack, slot = self.module_resources.get_next_free_slot()
+            
+        # prevent duplicate plate ids
+        if plate_id is not None or plate_id != "":
+            try:
+                self.module_resources.find_plate(plate_id)
+                return ActionFailed(errors=f"Plate with ID {plate_id} already in liconic")
+            except ValueError:
+                # allow to continue if no duplicate plate ID
+                pass
 
+        # check that there is a plate on the transfer station 
+        if not self.liconic_interface.transfer_station_occupied:
+            self.logger.log_error(
+                "load_plate command cannot be completed, no plate in transfer station"
+            )
+            return ActionFailed(
+                errors="load_plate command cannot be completed, no plate in transfer station"
+            )
+
+        # load the plate 
         self.liconic_interface.load_plate(stack=stack,slot=slot)
+        while self.liconic_interface.is_busy:  # TODO: test this
+            time.sleep(1)
+        self.module_resources.add_plate(plate_id, stack, slot)
         return ActionSucceeded(
             data={"message": f"Plate loaded into liconic stack {stack}, slot {slot}"}
         )
 
-        # if stacker is None or slot is None:
-        #     stacker, slot = self.module_resources.get_next_free_slot()
-
-        # if self.module_resources.is_location_occupied(stacker, slot):
-        #     self.logger.log_error(
-        #         "load_plate command cannot be completed, already plate in given position"
-        #     )
-        #     return ActionFailed(
-        #         errors="load_plate command cannot be completed, already plate in given position"
-        #     )
-        # if not self.liconic_interface.transfer_station_occupied:
-        #     self.logger.log_error(
-        #         "load_plate command cannot be completed, no plate in transfer station"
-        #     )
-        #     return ActionFailed(
-        #         errors="load_plate command cannot be completed, no plate in transfer station"
-        #     )
-        # if plate_id is not None or plate_id != "":
-        #     try:
-        #         self.module_resources.find_plate(plate_id)
-        #         self.logger.log_error(f"Plate with ID {plate_id} already in liconic")
-        #         return ActionFailed(
-        #             errors=f"Plate with ID {plate_id} already in liconic"
-        #         )
-        #     except ValueError:
-        #         pass
-        # self.liconic_interface.load_plate(stacker, slot)
-        # while self.liconic_interface.is_busy:
-        #     time.sleep(1)
-        # self.module_resources.add_plate(plate_id, stacker, slot)
-        # return ActionSucceeded(
-        #     data={"message": f"Plate loaded into liconic stack {stacker}, slot {slot}"}
-        # )
 
     @action(name="unload_plate", description="Unload a plate from the incubator")
     def unload_plate(

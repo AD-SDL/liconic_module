@@ -228,6 +228,9 @@ class ResourceTracker:
         if plate_type == "deep_96well":
             valid_stacks = [3, 4]
         return valid_stacks
+    
+    def is_valid_plate_type(self, plate_type: str) -> bool:
+        return plate_type in self.labware_definitions
 
 if __name__ == "__main__":
     test = ResourceTracker()

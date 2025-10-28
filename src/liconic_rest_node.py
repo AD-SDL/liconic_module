@@ -22,7 +22,7 @@ TODOs:
 - Construct resource path from cassette config file!
     - FOR NOW!!! just edit existing file!  - DONE! (resource tracker edited to specify slot number per stack)
 - Don't need logic to check user input in both the resource handler and the liconic test node...
-
+- test all load and unload argument combinations!
 """
 
 
@@ -32,7 +32,7 @@ class LiconicNodeConfig(RestNodeConfig):
     liconic_driver_port: int = 3333
     liconic_driver_host: str = "localhost"
     liconic_driver_cassette_config: str = "C:\\Liconic\\stxdriver_64bit\\DriverConfig\\Devices\\CassettesConfig1.xml"
-    node_url: str = "http://hudson01.cels.anl.gov:2005/"
+    node_url: str = "http://hudson01.cels.anl.gov:2005"
 
     # TODO: construct contents of this resource path from cassette config file
     resources_path: Path = (
@@ -69,77 +69,44 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(f"Error shutting down the Liconic Node: {err}")
 
     # TODO: re-implement state handler after testing!
-    # def state_handler(self) -> None:
-    #     """Periodically called to update the current state of the node."""
-    #     if self.liconic_interface is None:
-    #         self.logger.log_error("Liconic interface is not initialized")
-    #         return
-    #     if self.liconic_interface.is_busy:
-    #         self.node_state = {
-    #             "liconic_status_code": "BUSY",
-    #             "current_temperature": self.cached_current_temperature,
-    #             "target_temperature": self.cached_target_temperature,
-    #             "current_humidity": self.cached_current_humidity,
-    #             "target_humidity": self.cached_target_humidity,
-    #             "shovel_occupied": self.cached_shovel_occupied,
-    #             "transfer_station_occupied": self.cached_transfer_station_occupied,
-    #             "transfer_station_2_occupied": self.cached_transfer_station_2_occupied,
-    #         }
-    #         self.logger.info("BUSY")
-    #     else:
-    #         self.cached_current_temperature = self.liconic_interface.current_temperature
-    #         self.cached_target_temperature = self.liconic_interface.target_temperature
-    #         self.cached_current_humidity = self.liconic_interface.current_humidity
-    #         self.cached_target_humidity = self.liconic_interface.target_humidity
-    #         self.cached_shovel_occupied = self.liconic_interface.shovel_occupied
-    #         self.cached_transfer_station_occupied = (
-    #             self.liconic_interface.transfer_station_occupied
-    #         )
-    #         self.cached_transfer_station_2_occupied = (
-    #             self.liconic_interface.transfer_station_2_occupied
-    #         )
-    #         self.node_state = {
-    #             "liconic_status_code": "READY",
-    #             "current_temperature": self.cached_current_temperature,
-    #             "target_temperature": self.cached_target_temperature,
-    #             "current_humidity": self.cached_current_humidity,
-    #             "target_humidity": self.cached_target_humidity,
-    #             "shovel_occupied": self.cached_shovel_occupied,
-    #             "transfer_station_occupied": self.cached_transfer_station_occupied,
-    #             "transfer_station_2_occupied": (
-    #                 self.cached_transfer_station_2_occupied
-    #             ),
-    #         }
-    #         self.logger.info("READY")
+    def state_handler(self) -> None:
+        """Periodically called to update the current state of the node."""
+        if self.liconic_interface is None:
+            self.logger.log_error("Liconic interface is not initialized")
+            return
+        if self.liconic_interface.is_busy:
+            self.node_state = {
+                "liconic_status_code": "BUSY",
+                "current_temperature": self.cached_current_temperature,
+                "target_temperature": self.cached_target_temperature,
+                "current_humidity": self.cached_current_humidity,
+                "target_humidity": self.cached_target_humidity,
+                "transfer_station_occupied": self.cached_transfer_station_occupied,
+            }
+            self.logger.info("BUSY")
+        else:
+            # get actual tempera
+            actual_climate = self.liconic_interface.read_actual_climate()
+            self.cached_current_temperature = actual_climate[0]
+            self.cached_current_humidity = actual_climate[1]
+            target_climate = self.liconic_interface.read_set_climate()
+            self.cached_target_temperature = target_climate[0]
+            self.cached_target_humidity = target_climate[1]
 
+            transfer_station_status = self.liconic_interface.read_transfer_station_detector()
+            self.cached_transfer_station_occupied = True if transfer_station_status == 1 else False
+            if transfer_station_status == -1:
+                self.cached_transfer_station_occupied = "ERROR"
 
-    # @action(
-    #     name="get_current_temp",
-    #     description="Get the current temperature of the incubator",
-    # )
-    # def get_current_temp(self):
-    #     """Returns the current temperature of the incubator"""
-    #     try:
-    #         current_temp = self.liconic_interface.current_temperature
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error getting current temperature: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded(data={"current_temperature": current_temp})
-
-    # @action(
-    #     name="get_target_temp",
-    #     description="Get the target temperature of the incubator",
-    # )
-    # def get_target_temp(self):
-    #     """Returns the target temperature of the incubator"""
-    #     try:
-    #         target_temp = self.liconic_interface.target_temperature
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error getting target temperature: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded(data={"target_temperature": target_temp})
+            self.node_state = {
+                "liconic_status_code": "READY",
+                "current_temperature": self.cached_current_temperature,
+                "target_temperature": self.cached_target_temperature,
+                "current_humidity": self.cached_current_humidity,
+                "target_humidity": self.cached_target_humidity,
+                "transfer_station_occupied": self.cached_transfer_station_occupied,
+            }
+            self.logger.info("READY")
 
     # @action(
     #     name="set_target_temp",
@@ -154,34 +121,6 @@ class LiconicRestNode(RestNode):
     #         return ActionFailed(errors=str(err))
     #     else:
     #         return ActionSucceeded()
-
-    # @action(
-    #     name="get_current_humidity",
-    #     description="Get the current humidity of the incubator",
-    # )
-    # def get_current_humidity(self):
-    #     """Returns the current humidity of the incubator"""
-    #     try:
-    #         current_humidity = self.liconic_interface.current_humidity
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error getting current humidity: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded(data={"current_humidity": current_humidity})
-
-    # @action(
-    #     name="get_target_humidity",
-    #     description="Get the target humidity of the incubator",
-    # )
-    # def get_target_humidity(self):
-    #     """Returns the target humidity of the incubator"""
-    #     try:
-    #         target_humidity = self.liconic_interface.target_humidity
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error getting target humidity: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded(data={"target_humidity": target_humidity})
 
     # @action(
     #     name="set_target_humidity",
@@ -234,93 +173,77 @@ class LiconicRestNode(RestNode):
     #     else:
     #         return ActionSucceeded()
 
+    # TODO: Add incubate action? Would we ever want to block for incubating on this large incubator?
+
     @action(name="load_plate", description="Load a plate into the incubator")
     def load_plate(
         self,
         plate_type: Annotated[str, "plate type (flat_bottom_96well, deep_96well, etc.)"],
-        plate_id: Annotated[Optional[str], "plate id"],
-        stack: Annotated[Optional[int], "stack number (1-4), must also spexify slot"] = None,
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+        stack: Annotated[Optional[int], "stack number (1-4), must also specify slot"] = None,
         slot: Annotated[Optional[int], "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4, must also specify stack)"] = None,
     ):
         """Load a plate into the incubator"""
 
-        # catch all possible errors
-        # - if no stack and slot specified, if they are the wrong values
-        # - if there's a plate alread there according to the resources - DONE
-        # - if there's no plate in the transfer station - DONE
-        # - if the plate id is already in the resources or not specified - DONE
+        # helper function to log and return action failed
+        def action_failed(message: str) -> ActionFailed:
+            self.logger.log_error(message)
+            return ActionFailed(errors=message)
 
-        # validate plate type - required argument
+        # Validations
+        # 1. Validate plate type
         if not self.module_resources.is_valid_plate_type(plate_type):
-            self.logger.log_error(
-                f"load_plate command cannot be completed, invalid plate type: {plate_type}"
-            )
-            return ActionFailed(
-                errors=f"load_plate command cannot be completed, invalid plate type: {plate_type}"
-            )
-        
-        # check user entered arguments
-        if (stack is not None and slot is None) or (stack is None and slot is not None):
-            self.logger.log_error(
-                "load_plate command cannot be completed, must specify both stack and slot for loading plate into specific location."
-            )
-            return ActionFailed(
-                errors="load_plate command cannot be completed, must specify both stack and slot for loading plate into specific location."
-            )
-        
-        # check that user entered stack and slot 
-        if stack is not None and slot is not None:
-            # check that stack and slot values are valid for configuration
-            # TODO!
+            return action_failed(f"Invalid plate type: {plate_type}")
 
-            # check that the stack is valid for the specified plate type
-            if stack not in self.module_resources.find_valid_stack(plate_type=plate_type):
-                self.logger.log_error(
-                    f"load_plate command cannot be completed, stack {stack} is not valid for plate type {plate_type}"
-                )
-                return ActionFailed(
-                    errors=f"load_plate command cannot be completed, stack {stack} is not valid for plate type {plate_type}"
-                )
+        # 2. Validate stack/slot pairing
+        if bool(stack) ^ bool(slot):
+            return action_failed("Must specify both stack and slot when loading into a specific location.")
 
-            # check that the location is not already occupied
+        # 3. Validate stack & slot if provided
+        if stack and slot:
+            # 3a. check that the stack is valid for the specified plate type
+            valid_stacks = self.module_resources.find_valid_stack(plate_type=plate_type)
+            if stack not in valid_stacks:
+                return action_failed(f"Stack {stack} not valid for plate type {plate_type}")
+            # 3b. check that the stack/slot combination is valid
+            if not self.module_resources.is_valid_stack_slot(stack, slot):
+                return action_failed(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
+            # 3c. check that the location is not already occupied
             if self.module_resources.is_location_occupied(stack, slot):
-                self.logger.log_error(
-                    "load_plate command cannot be completed, already plate in given position"
-                )
-                return ActionFailed(
-                    errors="load_plate command cannot be completed, already plate in given position"
-                )
-            
-        # find next free slot if none specified
+                return action_failed(f"Location stack {stack}, slot {slot} already occupied.")
+
+        # Find next free slot if none specified
         if stack is None and slot is None:
             stack, slot = self.module_resources.get_next_free_slot()
-            
-        # prevent duplicate plate ids
-        if plate_id is not None or plate_id != "":
+
+        # 4. Prevent duplicate plate ids
+        if plate_id and str(plate_id).lower() != "none":
             try:
                 self.module_resources.find_plate(plate_id)
-                return ActionFailed(errors=f"Plate with ID {plate_id} already in liconic")
+                return action_failed(f"Plate with ID [{plate_id}] with type [{type(plate_id)}] already in liconic")
             except ValueError:
                 # allow to continue if no duplicate plate ID
                 pass
 
-        # check that there is a plate on the transfer station 
-        if not self.liconic_interface.transfer_station_occupied:
-            self.logger.log_error(
-                "load_plate command cannot be completed, no plate in transfer station"
-            )
-            return ActionFailed(
-                errors="load_plate command cannot be completed, no plate in transfer station"
-            )
+        # # 5. Check if there's a plate in the transfer station
+        # # TODO: re-enable this check after testing!
+        # if self.liconic_interface.read_transfer_station_detector() == 0:
+        #     return action_failed(
+        #         "Load_plate command cannot be completed, no plate in transfer station"
+        #     )
 
-        # load the plate 
+        # Load the plate
         self.liconic_interface.load_plate(stack=stack,slot=slot)
-        while self.liconic_interface.is_busy:  # TODO: test this
+        while self.liconic_interface.is_busy:
             time.sleep(1)
-        self.module_resources.add_plate(plate_id, stack, slot)
-        return ActionSucceeded(
-            data={"message": f"Plate loaded into liconic stack {stack}, slot {slot}"}
+        self.module_resources.add_plate(
+            plate_id=plate_id,
+            stack=stack,
+            slot=slot,
+            plate_type=plate_type,
         )
+        return ActionSucceeded(data={"message": f"Plate loaded into liconic stack {stack}, slot {slot}"})
+
 
 
     @action(name="unload_plate", description="Unload a plate from the incubator")
@@ -332,47 +255,47 @@ class LiconicRestNode(RestNode):
     ):
         """Unload a plate from the incubator"""
 
-        # catch all possible errors
-        # - if no stack and slot specified, if they are the wrong values
-        # - if there's a plate already there according to the resources
-        # - if there's no plate in the transfer station at the end of action
-        # - if there is no plate with the specified plate id
+        # helper function to log and return action failed
+        def action_failed(message: str) -> ActionFailed:
+            self.logger.log_error(message)
+            return ActionFailed(errors=message)
 
+        # Validations
+
+        if plate_id and str(plate_id).lower() != "none":
+            try:
+                # 1. Attempt to find plate by id if provided
+                found_stack, found_slot = self.module_resources.find_plate(str(plate_id))
+                if stack and slot:
+                    # 2. Validate stack/slot combo - TODO: maybe unnecessary
+                    if self.module_resources.is_valid_stack_slot(stack, slot):
+                        # 3. Check that the found location matches the specified location
+                        if found_stack != stack or found_slot != slot:
+                            return action_failed(f"Plate ID {plate_id} not located at specified stack {stack}, slot {slot}")
+                    else:
+                        return action_failed(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
+            except ValueError as err:
+                return action_failed(str(f"Error finding plate ID {plate_id}: {err}"))
+
+        # if we've gotten this far, either stack and slot were provided or found via plate id
+        # 4. Check that the location is actually occupied
+        if not self.module_resources.is_location_occupied(stack, slot):
+            return action_failed(f"No plate found at location stack {stack}, slot {slot}")
+
+        # 5. Check if transfer station is occupied, must be clear to unload
+        if self.liconic_interface.read_transfer_station_detector() == 1:
+            return action_failed(
+                "Transfer station occupied, please clear it before unloading."
+            )
+
+        # Unload the plate
         self.liconic_interface.unload_plate(stack=stack,slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
+        self.module_resources.remove_plate(stack=stack, slot=slot)
         return ActionSucceeded(
             data={"message": f"Plate unloaded from liconic stack {stack}, slot {slot}"}
         )
-
-        # """Unload a plate from the incubator"""
-        # if stack is None or (slot is None and plate_id is not None):
-        #     # * Get location based on plate id
-        #     stacker, slot = self.module_resources.find_plate(str(plate_id))
-
-        # if self.liconic_interface.transfer_station_occupied:
-        #     self.logger.log_error(
-        #         "Transfer station occupied, please clear it before unloading."
-        #     )
-        #     return ActionFailed(
-        #         errors="Transfer station occupied, please clear it before unloading."
-        #     )
-        # self.liconic_interface.unload_plate(stacker, slot)
-        # while self.liconic_interface.is_busy:
-        #     time.sleep(1)
-        # if self.liconic_interface.transfer_station_occupied:
-        #     if plate_id:
-        #         self.module_resources.remove_plate(
-        #             plate_id=plate_id, stack=stacker, slot=slot
-        #         )
-        #     return ActionSucceeded(
-        #         data={
-        #             "message": f"Plate unloaded from liconic stack {stack}, slot {slot}"
-        #         }
-        #     )
-        # self.logger.log_error("Failed to unload plate from liconic")
-        # return ActionFailed(
-        #     errors=f"Failed to unload plate from liconic stack {stack}, slot {slot}"
-        # )
-
 
 if __name__ == "__main__":
     liconic_module = LiconicRestNode()

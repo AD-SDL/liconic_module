@@ -2,9 +2,9 @@
 
 import datetime
 from pathlib import Path
-from typing import Optional, Union, dict
+from typing import Optional, Union, Dict
 
-from labware_definitions import plate_definitions
+from liconic_interface.labware_definitions import plate_definitions
 from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
 """
@@ -94,29 +94,37 @@ class ResourceTracker:
     def add_plate(
         self,
         plate_type: str,
-        plate_id: str,
-        stack: Optional[int] = None,
-        slot: Optional[int] = None,
+        stack: int,
+        slot: int,
+        plate_id: Optional[str] = None,
     ) -> None:
         """
         updates the liconic resource file when a new plate is placed into the liconic
 
-        TODO: there's a possibility here that the user specifies stack but not slot. The program
-        will then ignore the desired stack and place it in the next free balanced slot.
-        This might not be a bad thing...
+        Note: some validations are included here for safety if this function is called directly.
+        Args:
+            plate_type (str): type of plate being added
+            stack (int): stack number where plate is being added
+            slot (int): slot number where plate is being added
+            plate_id (Optional[str], optional): unique identifier for the plate. Defaults to None.
+        Raises:
+            ValueError: if plate type is unsupported
+            ValueError: if stack is invalid for plate type
+            ValueError: if stack/slot combination is invalid
+            Exception: if location is already occupied
+
         """
+        # Validations if funtion is called directly
+        if not self.is_valid_plate_type(plate_type):
+            raise ValueError(f"Unsupported plate type: {plate_type}")
+        if not stack in self.find_valid_stack(plate_type):
+            raise ValueError(f"Invalid stack {stack} for plate type {plate_type}")
+        if not self.is_valid_stack_slot(stack, slot):
+            raise ValueError(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
+        if self.is_location_occupied(stack, slot):
+            raise Exception("Location already occupied")
 
-        # TODO: are these necessary?
-        stack = int(stack) if stack is not None else None
-        slot = int(slot) if slot is not None else None
-
-        if stack is not None and slot is not None:
-            if stack not in self.find_valid_stack(plate_type):
-                raise ValueError(f"Invalid slot {slot} for plate type {plate_type}")
-            if self.is_location_occupied(stack, slot):
-                raise Exception("Location already occupied")
-        else:
-            stack, slot = self.get_next_free_slot(plate_type=plate_type)
+        # Add the plate to the resource file
         self.resources[stack][slot] = Slot(
             occupied=True,
             plate_id=plate_id,
@@ -228,9 +236,20 @@ class ResourceTracker:
         if plate_type == "deep_96well":
             valid_stacks = [3, 4]
         return valid_stacks
-    
+
     def is_valid_plate_type(self, plate_type: str) -> bool:
         return plate_type in self.labware_definitions
+
+    def is_valid_stack_slot(self, stack: int, slot: int) -> bool:
+        """
+        checks if the given stack and slot are valid for the current configuration
+        """
+        valid = True
+        if stack not in self.resources.stacks:
+            valid = False
+        if slot not in self.resources[stack].slots:
+            valid = False
+        return valid
 
 if __name__ == "__main__":
     test = ResourceTracker()

@@ -1,4 +1,4 @@
-from resource_types import PlateResource
+from liconic_interface.resource_types import PlateResource
 
 # TODO: Add dimensions to the deep_96well!
 

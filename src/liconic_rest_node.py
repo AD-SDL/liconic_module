@@ -1,6 +1,7 @@
 """REST-based client for the Liconic on Windows systems."""
 
 import time
+import logging
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -11,6 +12,10 @@ from madsci.node_module.rest_node_module import RestNode
 
 from liconic_interface.liconic_interface import LICONIC
 from liconic_interface.resource_tracker import ResourceTracker
+
+from liconic_interface.pydantic_models import LoadPlateModel, UnloadPlateModel
+
+
 
 
 """
@@ -31,9 +36,9 @@ class LiconicNodeConfig(RestNodeConfig):
     liconic_driver_port: int = 3333
     liconic_driver_host: str = "localhost"
     liconic_driver_cassette_config: str = "C:\\Liconic\\stxdriver_64bit\\DriverConfig\\Devices\\CassettesConfig1.xml"
-    node_url: str = "http://hudson01.cels.anl.gov:2005" # generally don't want to do this. 
+    node_url: str = "http://hudson01.cels.anl.gov:2005" # generally don't want to do this.
     # run as cli arg using --node_url http://hudson01.cels.anl.gov:2005
-    
+
 
     # TODO: construct contents of this resource path from cassette config file
     resources_path: Path = (
@@ -109,7 +114,6 @@ class LiconicRestNode(RestNode):
             }
             self.logger.info("READY")
 
-    # TODO: TEST THIS!
     @action(
         name="set_target_temp",
         description="Set the target temperature of the incubator",
@@ -119,17 +123,23 @@ class LiconicRestNode(RestNode):
         try:
             # get the current climate conditions
             climate = self.liconic_interface.read_set_climate()
+            temp = float(temp)
             # set the new target temperature while keeping humidity, CO2, and N2 the same
             climate[0] = temp
-            # set new climate with new temperature
-            self.liconic_interface.set_climate(climate)
+            # set new climate with new temperature, making sure to preserve other values
+            self.liconic_interface.write_set_climate(
+                temperature=climate[0],
+                humidity=climate[1],
+                co2=climate[2],
+                n2=climate[3],
+            )
         except Exception as err:
             self.logger.log_error(f"Error setting target temperature: {err}")
             return ActionFailed(errors=str(err))
         else:
+            self.logger.log("Target temperature set successfully.")
             return ActionSucceeded()
 
-    # TODO: TEST THIS!
     @action(
         name="set_target_humidity",
         description="Set the target humidity of the incubator",
@@ -139,52 +149,88 @@ class LiconicRestNode(RestNode):
         try:
             # get the current climate conditions
             climate = self.liconic_interface.read_set_climate()
+            humidity = float(humidity)
             # set the new target humidity while keeping humidity, CO2, and N2 the same
             climate[1] = humidity
-            # set new climate with new humidity
-            self.liconic_interface.set_climate(climate)
+            # set new climate with new humidity, making sure to preserve other values
+            self.liconic_interface.write_set_climate(
+                temperature=climate[0],
+                humidity=climate[1],
+                co2=climate[2],
+                n2=climate[3],
+            )
         except Exception as err:
             self.logger.log_error(f"Error setting target humidity: {err}")
             return ActionFailed(errors=str(err))
         else:
+            self.logger.log("Target humidity set successfully.")
             return ActionSucceeded()
 
     @action(
         name="begin_shake",
         description="Begin shaking the incubator at the specified speed",
     )
-    def begin_shake(self, shaker_speed: Annotated[int, "shaker speed"]):
-        """Activate the shaker in the liconic at the specified 'shaker_speed'"""
+    def begin_shake(
+        self,
+        shaker_id: Annotated[Optional[int], "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)"] = None,
+        shaker_speed: Annotated[int, "shaker speed (1-50 valid, default 20 = 200rpm)"] = 20
+        ):
+        """Activate the shaker in the liconic at the specified shaker_speed'"""
+
+        # TODO: validate shaker inputs with pydantic...
+            # TODO: remove validations from the driver??? or is it more safe to leave them in both places?
+
         try:
-            if (
-                self.liconic_interface.shaker_active
-                and shaker_speed != self.liconic_interface.shaker_speed
-            ):
-                """already shaking but not at the desired speed"""
-                self.liconic_interface.shaker_active = False
-                self.liconic_interface.shaker_speed = shaker_speed
-                self.liconic_interface.shaker_active = True
-                time.sleep(2)
-            else:  # not shaking
-                self.liconic_interface.shaker_speed = shaker_speed
-                self.liconic_interface.shaker_active = True
-                time.sleep(2)
+            # validate shaker speed
+            shaker_speed = int(shaker_speed)
+            if shaker_speed < 1 or shaker_speed > 50:
+                raise ValueError("shaker_speed must be between 1 and 50.")
+            # check if shaker_id is valid
+            if shaker_id and str(shaker_id).lower() != "none":
+                if int(shaker_id) not in [1, 2]:
+                    raise ValueError("shaker_id, if specified, must be 1 or 2.")
+                else:
+                    self.liconic_interface.activate_shaker(shaker_id=int(shaker_id), speed=shaker_speed)
+                    time.sleep(2)  # TODO: are these sleeps necessary?
+            elif shaker_id is None or str(shaker_id).lower() == "none":
+                # activate both shakers
+                self.liconic_interface.activate_shaker(shaker_id=1, speed=shaker_speed)
+                time.sleep(2) # TODO: are these sleeps necessary?
+                self.liconic_interface.activate_shaker(shaker_id=2, speed=shaker_speed)
+                time.sleep(2) # TODO: are these sleeps necessary?
+            else:
+                raise ValueError("Invalid shaker_id value.")
         except Exception as err:
             self.logger.log_error(f"Error starting shaker: {err}")
             return ActionFailed(errors=str(err))
         else:
             return ActionSucceeded()
 
-    # @action(name="end_shake", description="Stop shaking the incubator")
-    # def end_shake(self):
-    #     """Stop the shaker in the liconic"""
-    #     try:
-    #         self.liconic_interface.shaker_active = False
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error stopping shaker: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded()
+    @action(name="end_shake", description="Stop shaking the incubator")
+    def end_shake(
+        self,
+        shaker_id: Annotated[Optional[int], "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)"] = None):
+        """Stop the shaker in the liconic"""
+        try:
+            # check if shaker_id is valid
+            if shaker_id and str(shaker_id).lower() != "none":
+                if int(shaker_id) not in [1, 2]:
+                    raise ValueError("shaker_id, if spefified, must be 1 or 2.")
+                else:
+                    self.liconic_interface.deactivate_shaker(shaker_id=int(shaker_id))
+
+            elif shaker_id is None or str(shaker_id).lower() == "none":
+                # deactiavte both shakers
+                self.liconic_interface.deactivate_shaker(shaker_id=1)
+                self.liconic_interface.deactivate_shaker(shaker_id=2)
+
+            else:
+                raise ValueError("Invalid shaker_id value.")
+        except Exception as err:
+            self.logger.log_error(f"Error stopping shaker: {err}")
+            return ActionFailed(errors=str(err))
+        else:
+            return ActionSucceeded()
 
     # TODO: Add incubate action? Would we ever want to block for incubating on this large incubator?
 
@@ -198,50 +244,24 @@ class LiconicRestNode(RestNode):
     ):
         """Load a plate into the incubator"""
 
-        # define pydantic model 
-        # then put arguments in the pydantic model
-
-        # then you can continue with your funtion assuming you have valid arguments
-
-        # helper function to log and return action failed
-        def action_failed(message: str) -> ActionFailed:
-            self.logger.log_error(message)
-            return ActionFailed(errors=message)
-
-        # Validations
-        # 1. Validate plate type
-        if not self.module_resources.is_valid_plate_type(plate_type):
-            return action_failed(f"Invalid plate type: {plate_type}")
-
-        # 2. Validate stack/slot pairing
-        if bool(stack) ^ bool(slot):
-            return action_failed("Must specify both stack and slot when loading into a specific location.")
-
-        # 3. Validate stack & slot if provided
-        if stack and slot:
-            # 3a. check that the stack is valid for the specified plate type
-            valid_stacks = self.module_resources.find_valid_stack(plate_type=plate_type)
-            if stack not in valid_stacks:
-                return action_failed(f"Stack {stack} not valid for plate type {plate_type}")
-            # 3b. check that the stack/slot combination is valid
-            if not self.module_resources.is_valid_stack_slot(stack, slot):
-                return action_failed(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
-            # 3c. check that the location is not already occupied
-            if self.module_resources.is_location_occupied(stack, slot):
-                return action_failed(f"Location stack {stack}, slot {slot} already occupied.")
+        # Validate arguments with pydantic model
+        try:
+            self.logger.info(f"Resource tracker before LoadPlateModel: {self.module_resources}, type {type(self.module_resources)}")
+            LoadPlateModel(
+                plate_type=plate_type,
+                plate_id=plate_id,
+                stack=stack,
+                slot=slot,
+                resource_tracker=self.module_resources,
+            )
+        except Exception as err:
+            # Don't put device into error state if argument validation fails, just fail action
+            self.logger.log_error(f"Error validating load_plate arguments: {err}")
+            return ActionFailed(errors=str(err))
 
         # Find next free slot if none specified
         if stack is None and slot is None:
-            stack, slot = self.module_resources.get_next_free_slot()
-
-        # 4. Prevent duplicate plate ids
-        if plate_id and str(plate_id).lower() != "none":
-            try:
-                self.module_resources.find_plate(plate_id)
-                return action_failed(f"Plate with ID [{plate_id}] with type [{type(plate_id)}] already in liconic")
-            except ValueError:
-                # allow to continue if no duplicate plate ID
-                pass
+            stack, slot = self.module_resources.get_next_free_slot(plate_type=plate_type)
 
         # # 5. Check if there's a plate in the transfer station
         # # TODO: re-enable this check after testing!
@@ -272,37 +292,62 @@ class LiconicRestNode(RestNode):
     ):
         """Unload a plate from the incubator"""
 
-        # helper function to log and return action failed
-        def action_failed(message: str) -> ActionFailed:
-            self.logger.log_error(message)
-            return ActionFailed(errors=message)
+        # Validate arguments with pydantic model
+        try:
+            self.logger.info(f"Resource tracker before LoadPlateModel: {self.module_resources}, type {type(self.module_resources)}")
+            UnloadPlateModel(
+                plate_id=plate_id,
+                stack=stack,
+                slot=slot,
+                resource_tracker=self.module_resources,
+            )
+        except Exception as err:
+            # Don't put device into error state if argument validation fails, just fail action
+            self.logger.log_error(f"Error validating unload_plate arguments: {err}")
+            return ActionFailed(errors=str(err))
 
-        # Validations
-        if plate_id and str(plate_id).lower() != "none":
-            try:
-                # 1. Attempt to find plate by id if provided
-                found_stack, found_slot = self.module_resources.find_plate(str(plate_id))
-                if stack and slot:
-                    # 2. Validate stack/slot combo - TODO: maybe unnecessary
-                    if self.module_resources.is_valid_stack_slot(stack, slot):
-                        # 3. Check that the found location matches the specified location
-                        if found_stack != stack or found_slot != slot:
-                            return action_failed(f"Plate ID {plate_id} not located at specified stack {stack}, slot {slot}")
-                    else:
-                        return action_failed(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
-            except ValueError as err:
-                return action_failed(str(f"Error finding plate ID {plate_id}: {err}"))
+        # TESTING
+        self.logger.info(f"Unload plate arguments after validation: plate_id={plate_id}, stack={stack}, slot={slot}")
+
+        # # helper function to log and return action failed
+        # def action_failed(message: str) -> ActionFailed:
+        #     self.logger.log_error(message)
+        #     return ActionFailed(errors=message)
+
+        # # Validations
+        # if plate_id and str(plate_id).lower() != "none":
+        #     self.logger.info(f"Input plate_id: {plate_id} ({type(plate_id)})")
+        #     try:
+        #         # 1. Attempt to find plate by id if provided
+        #         found_stack, found_slot = self.module_resources.find_plate(str(plate_id))
+        #         self.logger.info(f"Found plate ID {plate_id} at stack {found_stack}, slot {found_slot}")
+        #         # 2. If stack and slot are also provided, validate against found location
+        #         if stack and slot:
+        #             self.logger.info(f"Input stack and slot: stack {stack} ({type(stack)}), slot {slot} ({type(slot)})")
+        #             # 2. Validate stack/slot combo
+        #             if self.module_resources.is_valid_stack_slot(stack, slot):
+        #                 # 3. Check that the found location matches the specified location
+        #                 if found_stack != stack or found_slot != slot:
+        #                     return action_failed(f"Plate ID {plate_id} not located at specified stack {stack}, slot {slot}")
+        #             else:
+        #                 return action_failed(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
+        #         else:
+        #             stack = found_stack
+        #             slot = found_slot
+        #     except ValueError as err:
+        #         return action_failed(str(f"Error finding plate ID {plate_id}: {err}"))
+
 
         # if we've gotten this far, either stack and slot were provided or found via plate id
         # 4. Check that the location is actually occupied
         if not self.module_resources.is_location_occupied(stack, slot):
-            return action_failed(f"No plate found at location stack {stack}, slot {slot}")
+            self.logger.log_error(f"No plate found at location stack {stack}, slot {slot}")
+            return ActionFailed(errors=f"No plate found at location stack {stack}, slot {slot}")
 
         # 5. Check if transfer station is occupied, must be clear to unload
         if self.liconic_interface.read_transfer_station_detector() == 1:
-            return action_failed(
-                "Transfer station occupied, please clear it before unloading."
-            )
+            self.logger.log_error("Transfer station occupied, please clear it before unloading.")
+            return ActionFailed(errors="Transfer station occupied, please clear it before unloading.")
 
         # Unload the plate
         self.liconic_interface.unload_plate(stack=stack,slot=slot)

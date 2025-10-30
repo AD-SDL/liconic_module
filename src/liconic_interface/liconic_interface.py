@@ -121,12 +121,14 @@ class LICONIC:
             self.c_socket.send(f"STX2ReadActualClimate({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             actual_climate = feedback.split(";")
+            actual_climate = [float(value) for value in actual_climate]  # convert strings to floats
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
             self.logger.debug(f"{datetime.datetime.now()} - Actual Climate Data: {actual_climate}")
             return actual_climate
 
     def write_set_climate(
-        self, temperature: float = 37.0,
+        self,
+        temperature: float = 37.0,
         humidity: float = 95.0,
         co2: float = 10.0,
         n2: float = 0.0
@@ -165,26 +167,27 @@ class LICONIC:
             self.c_socket.send(f"STX2ReadSetClimate({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             set_climate = feedback.split(";")
+            set_climate = [float(value) for value in set_climate]  # convert strings to floats
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
             self.logger.debug(f"{datetime.datetime.now()} - Set Climate Data: {set_climate}")
             return set_climate
 
 
     # SHAKER CONTROL METHODS
-    def activate_shaker(self, shaker_id: int = 1, speed: int = 20) -> None:
+    def activate_shaker(self, shaker_id: int = None, speed: int = 20) -> None:
         """
         Activates the specified shaker at the specified speed.
         Blank feedback response expected.
 
         Args:
             shaker_id (int): shaker iD (1 or 2).
-            speed (int): Shaker speed in rpm (0-50).
+            speed (int): Shaker speed in rpm (1-50).
 
         """
         if shaker_id not in [1, 2]:
             raise ValueError("shaker_id must be 1 or 2.")
-        if speed < 0 or speed > 50:
-            raise ValueError("speed must be between 0 and 50 rpm.")
+        if speed < 1 or speed > 50:
+            raise ValueError("speed must be between 1 and 50 rpm.")
 
         with self.lock:
             self.logger.debug(f"{datetime.datetime.now()} - Activating shaker")

@@ -23,6 +23,74 @@ capabilities:
   - unlock
 node_url: null
 actions:
+  set_target_temp:
+    name: set_target_temp
+    description: Set the target temperature of the incubator
+    args:
+      temp:
+        name: temp
+        description: target temperature
+        argument_type: float
+        required: true
+        default: null
+    locations: {}
+    files: {}
+    results: {}
+    blocking: false
+    asynchronous: true
+  set_target_humidity:
+    name: set_target_humidity
+    description: Set the target humidity of the incubator
+    args:
+      humidity:
+        name: humidity
+        description: target humidity
+        argument_type: float
+        required: true
+        default: null
+    locations: {}
+    files: {}
+    results: {}
+    blocking: false
+    asynchronous: true
+  begin_shake:
+    name: begin_shake
+    description: Begin shaking the incubator at the specified speed
+    args:
+      shaker_id:
+        name: shaker_id
+        description: shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and
+          4 , or None for both shakers)
+        argument_type: int
+        required: false
+        default: null
+      shaker_speed:
+        name: shaker_speed
+        description: shaker speed (1-50 valid, default 20 = 200rpm)
+        argument_type: int
+        required: false
+        default: 20
+    locations: {}
+    files: {}
+    results: {}
+    blocking: false
+    asynchronous: true
+  end_shake:
+    name: end_shake
+    description: Stop shaking the incubator
+    args:
+      shaker_id:
+        name: shaker_id
+        description: shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and
+          4 , or None for both shakers)
+        argument_type: int
+        required: false
+        default: null
+    locations: {}
+    files: {}
+    results: {}
+    blocking: false
+    asynchronous: true
   load_plate:
     name: load_plate
     description: Load a plate into the incubator

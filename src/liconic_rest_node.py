@@ -21,7 +21,6 @@ TODOs:
      - they seem to be alphabetical right now which is confusing
 - Construct resource path from cassette config file!
     - FOR NOW!!! just edit existing file!  - DONE! (resource tracker edited to specify slot number per stack)
-- Don't need logic to check user input in both the resource handler and the liconic test node...
 - test all load and unload argument combinations!
 """
 
@@ -32,7 +31,9 @@ class LiconicNodeConfig(RestNodeConfig):
     liconic_driver_port: int = 3333
     liconic_driver_host: str = "localhost"
     liconic_driver_cassette_config: str = "C:\\Liconic\\stxdriver_64bit\\DriverConfig\\Devices\\CassettesConfig1.xml"
-    node_url: str = "http://hudson01.cels.anl.gov:2005"
+    node_url: str = "http://hudson01.cels.anl.gov:2005" # generally don't want to do this. 
+    # run as cli arg using --node_url http://hudson01.cels.anl.gov:2005
+    
 
     # TODO: construct contents of this resource path from cassette config file
     resources_path: Path = (
@@ -85,7 +86,7 @@ class LiconicRestNode(RestNode):
             }
             self.logger.info("BUSY")
         else:
-            # get actual tempera
+            # query device for temperature and humidity
             actual_climate = self.liconic_interface.read_actual_climate()
             self.cached_current_temperature = actual_climate[0]
             self.cached_current_humidity = actual_climate[1]
@@ -108,59 +109,71 @@ class LiconicRestNode(RestNode):
             }
             self.logger.info("READY")
 
-    # @action(
-    #     name="set_target_temp",
-    #     description="Set the target temperature of the incubator",
-    # )
-    # def set_target_temp(self, temp: Annotated[float, "target temperature"]):
-    #     """Sets the target temperature of the incubator"""
-    #     try:
-    #         self.liconic_interface.target_temperature = temp
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error setting target temperature: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded()
+    # TODO: TEST THIS!
+    @action(
+        name="set_target_temp",
+        description="Set the target temperature of the incubator",
+    )
+    def set_target_temp(self, temp: Annotated[float, "target temperature"]):
+        """Sets the target temperature of the incubator"""
+        try:
+            # get the current climate conditions
+            climate = self.liconic_interface.read_set_climate()
+            # set the new target temperature while keeping humidity, CO2, and N2 the same
+            climate[0] = temp
+            # set new climate with new temperature
+            self.liconic_interface.set_climate(climate)
+        except Exception as err:
+            self.logger.log_error(f"Error setting target temperature: {err}")
+            return ActionFailed(errors=str(err))
+        else:
+            return ActionSucceeded()
 
-    # @action(
-    #     name="set_target_humidity",
-    #     description="Set the target humidity of the incubator",
-    # )
-    # def set_target_humidity(self, humidity: Annotated[float, "target humidity"]):
-    #     """Sets the target humidity of the incubator"""
-    #     try:
-    #         self.liconic_interface.target_humidity = humidity
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error setting target humidity: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded()
+    # TODO: TEST THIS!
+    @action(
+        name="set_target_humidity",
+        description="Set the target humidity of the incubator",
+    )
+    def set_target_humidity(self, humidity: Annotated[float, "target humidity"]):
+        """Sets the target humidity of the incubator"""
+        try:
+            # get the current climate conditions
+            climate = self.liconic_interface.read_set_climate()
+            # set the new target humidity while keeping humidity, CO2, and N2 the same
+            climate[1] = humidity
+            # set new climate with new humidity
+            self.liconic_interface.set_climate(climate)
+        except Exception as err:
+            self.logger.log_error(f"Error setting target humidity: {err}")
+            return ActionFailed(errors=str(err))
+        else:
+            return ActionSucceeded()
 
-    # @action(
-    #     name="begin_shake",
-    #     description="Begin shaking the incubator at the specified speed",
-    # )
-    # def begin_shake(self, shaker_speed: Annotated[int, "shaker speed"]):
-    #     """Activate the shaker in the liconic at the specified 'shaker_speed'"""
-    #     try:
-    #         if (
-    #             self.liconic_interface.shaker_active
-    #             and shaker_speed != self.liconic_interface.shaker_speed
-    #         ):
-    #             """already shaking but not at the desired speed"""
-    #             self.liconic_interface.shaker_active = False
-    #             self.liconic_interface.shaker_speed = shaker_speed
-    #             self.liconic_interface.shaker_active = True
-    #             time.sleep(2)
-    #         else:  # not shaking
-    #             self.liconic_interface.shaker_speed = shaker_speed
-    #             self.liconic_interface.shaker_active = True
-    #             time.sleep(2)
-    #     except Exception as err:
-    #         self.logger.log_error(f"Error starting shaker: {err}")
-    #         return ActionFailed(errors=str(err))
-    #     else:
-    #         return ActionSucceeded()
+    @action(
+        name="begin_shake",
+        description="Begin shaking the incubator at the specified speed",
+    )
+    def begin_shake(self, shaker_speed: Annotated[int, "shaker speed"]):
+        """Activate the shaker in the liconic at the specified 'shaker_speed'"""
+        try:
+            if (
+                self.liconic_interface.shaker_active
+                and shaker_speed != self.liconic_interface.shaker_speed
+            ):
+                """already shaking but not at the desired speed"""
+                self.liconic_interface.shaker_active = False
+                self.liconic_interface.shaker_speed = shaker_speed
+                self.liconic_interface.shaker_active = True
+                time.sleep(2)
+            else:  # not shaking
+                self.liconic_interface.shaker_speed = shaker_speed
+                self.liconic_interface.shaker_active = True
+                time.sleep(2)
+        except Exception as err:
+            self.logger.log_error(f"Error starting shaker: {err}")
+            return ActionFailed(errors=str(err))
+        else:
+            return ActionSucceeded()
 
     # @action(name="end_shake", description="Stop shaking the incubator")
     # def end_shake(self):
@@ -184,6 +197,11 @@ class LiconicRestNode(RestNode):
         slot: Annotated[Optional[int], "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4, must also specify stack)"] = None,
     ):
         """Load a plate into the incubator"""
+
+        # define pydantic model 
+        # then put arguments in the pydantic model
+
+        # then you can continue with your funtion assuming you have valid arguments
 
         # helper function to log and return action failed
         def action_failed(message: str) -> ActionFailed:
@@ -245,7 +263,6 @@ class LiconicRestNode(RestNode):
         return ActionSucceeded(data={"message": f"Plate loaded into liconic stack {stack}, slot {slot}"})
 
 
-
     @action(name="unload_plate", description="Unload a plate from the incubator")
     def unload_plate(
         self,
@@ -261,7 +278,6 @@ class LiconicRestNode(RestNode):
             return ActionFailed(errors=message)
 
         # Validations
-
         if plate_id and str(plate_id).lower() != "none":
             try:
                 # 1. Attempt to find plate by id if provided

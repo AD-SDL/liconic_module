@@ -36,9 +36,6 @@ class LiconicNodeConfig(RestNodeConfig):
     liconic_driver_port: int = 3333
     liconic_driver_host: str = "localhost"
     liconic_driver_cassette_config: str = "C:\\Liconic\\stxdriver_64bit\\DriverConfig\\Devices\\CassettesConfig1.xml"
-    node_url: str = "http://hudson01.cels.anl.gov:2005" # generally don't want to do this.
-    # run as cli arg using --node_url http://hudson01.cels.anl.gov:2005
-
 
     # TODO: construct contents of this resource path from cassette config file
     resources_path: Path = (

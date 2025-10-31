@@ -144,7 +144,7 @@ class EndShakeModel(BaseModel):
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
     
-def SetTemperatureModel(BaseModel):
+class SetTemperatureModel(BaseModel):
     temperature: float
 
     @field_validator("temperature")
@@ -153,7 +153,14 @@ def SetTemperatureModel(BaseModel):
             raise ValueError("temperature must be in celcius between 4.0 and 50.0")
         return v
     
+class SetHumidityModel(BaseModel):
+    humidity: float
 
+    @field_validator("humidity")
+    def validate_humidity(cls, v):
+        if v < 0.0 or v > 95.0:
+            raise ValueError("humidity must be between 0.0 and 95.0 percent")
+        return v
 
   
 

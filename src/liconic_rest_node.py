@@ -34,7 +34,7 @@ TODOs:
 - Test begin and end shake actions after implementing pydantic models
 - Test temperature and humidity set actions after implementing pydantic models
 - Double check temperature and humidity range limits with Liconic manual
-- 
+
 """
 
 

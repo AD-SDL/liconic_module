@@ -338,11 +338,11 @@ class LiconicRestNode(RestNode):
         #         return action_failed(str(f"Error finding plate ID {plate_id}: {err}"))
 
 
-        # if we've gotten this far, either stack and slot were provided or found via plate id
-        # 4. Check that the location is actually occupied
-        if not self.module_resources.is_location_occupied(stack, slot):
-            self.logger.log_error(f"No plate found at location stack {stack}, slot {slot}")
-            return ActionFailed(errors=f"No plate found at location stack {stack}, slot {slot}")
+        # # if we've gotten this far, either stack and slot were provided or found via plate id
+        # # 4. Check that the location is actually occupied
+        # if not self.module_resources.is_location_occupied(stack, slot):
+        #     self.logger.log_error(f"No plate found at location stack {stack}, slot {slot}")
+        #     return ActionFailed(errors=f"No plate found at location stack {stack}, slot {slot}")
 
         # 5. Check if transfer station is occupied, must be clear to unload
         if self.liconic_interface.read_transfer_station_detector() == 1:

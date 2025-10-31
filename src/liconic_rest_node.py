@@ -293,9 +293,10 @@ class LiconicRestNode(RestNode):
         """Unload a plate from the incubator"""
 
         # Validate arguments with pydantic model
+        self.logger.info(f"Unload plate arguments before validation: plate_id={plate_id}, stack={stack}, slot={slot}")
         try:
             self.logger.info(f"Resource tracker before LoadPlateModel: {self.module_resources}, type {type(self.module_resources)}")
-            UnloadPlateModel(
+            model = UnloadPlateModel(
                 plate_id=plate_id,
                 stack=stack,
                 slot=slot,
@@ -306,45 +307,13 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(f"Error validating unload_plate arguments: {err}")
             return ActionFailed(errors=str(err))
 
-        # TESTING
+        # Extract validated values
+        plate_id = model.plate_id
+        stack = model.stack
+        slot = model.slot
         self.logger.info(f"Unload plate arguments after validation: plate_id={plate_id}, stack={stack}, slot={slot}")
 
-        # # helper function to log and return action failed
-        # def action_failed(message: str) -> ActionFailed:
-        #     self.logger.log_error(message)
-        #     return ActionFailed(errors=message)
-
-        # # Validations
-        # if plate_id and str(plate_id).lower() != "none":
-        #     self.logger.info(f"Input plate_id: {plate_id} ({type(plate_id)})")
-        #     try:
-        #         # 1. Attempt to find plate by id if provided
-        #         found_stack, found_slot = self.module_resources.find_plate(str(plate_id))
-        #         self.logger.info(f"Found plate ID {plate_id} at stack {found_stack}, slot {found_slot}")
-        #         # 2. If stack and slot are also provided, validate against found location
-        #         if stack and slot:
-        #             self.logger.info(f"Input stack and slot: stack {stack} ({type(stack)}), slot {slot} ({type(slot)})")
-        #             # 2. Validate stack/slot combo
-        #             if self.module_resources.is_valid_stack_slot(stack, slot):
-        #                 # 3. Check that the found location matches the specified location
-        #                 if found_stack != stack or found_slot != slot:
-        #                     return action_failed(f"Plate ID {plate_id} not located at specified stack {stack}, slot {slot}")
-        #             else:
-        #                 return action_failed(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
-        #         else:
-        #             stack = found_stack
-        #             slot = found_slot
-        #     except ValueError as err:
-        #         return action_failed(str(f"Error finding plate ID {plate_id}: {err}"))
-
-
-        # # if we've gotten this far, either stack and slot were provided or found via plate id
-        # # 4. Check that the location is actually occupied
-        # if not self.module_resources.is_location_occupied(stack, slot):
-        #     self.logger.log_error(f"No plate found at location stack {stack}, slot {slot}")
-        #     return ActionFailed(errors=f"No plate found at location stack {stack}, slot {slot}")
-
-        # 5. Check if transfer station is occupied, must be clear to unload
+        # Check if transfer station is occupied, must be clear to unload
         if self.liconic_interface.read_transfer_station_detector() == 1:
             self.logger.log_error("Transfer station occupied, please clear it before unloading.")
             return ActionFailed(errors="Transfer station occupied, please clear it before unloading.")
@@ -354,6 +323,7 @@ class LiconicRestNode(RestNode):
         while self.liconic_interface.is_busy:
             time.sleep(1)
         self.module_resources.remove_plate(stack=stack, slot=slot)
+        self.logger.info("Plate unloaded successfully.")
         return ActionSucceeded(
             data={"message": f"Plate unloaded from liconic stack {stack}, slot {slot}"}
         )

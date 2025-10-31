@@ -74,12 +74,22 @@ class UnloadPlateModel(BaseModel):
         # 1. Ensure resource_tracker is provided
         if not self.resource_tracker:
             raise ValueError("resource_tracker must be provided for UnloadPlateModel validation")
-        
+
         # Validate combination of inputs
         # TODO: check that this could not just be if not self.plate_id ...
-        if not (self.plate_id and str(self.plate_id).lower() != "none") and not (self.stack and self.slot):
+        entered_plate_id = self.plate_id and str(self.plate_id).lower() != "none"
+        entered_both_stack_and_slot = True if self.stack is not None and self.slot is not None else False
+        print(f"entered_plate_id: {entered_plate_id}, entered_both_stack_and_slot: {entered_both_stack_and_slot}")
+        # if not entered_plate_id:
+        #     raise ValueError("plate_id must be provided to unload a plate")
+        # if not entered_both_stack_and_slot:
+        #     raise ValueError("both stack and slot must be provided to unload a plate")
+        if entered_plate_id or entered_both_stack_and_slot:
+            pass
+        else:
             raise ValueError("plate_id or both stack and slot must be provided")
-        
+
+
         if self.stack and self.slot:
             # if stack/slot provided, validate combination
             if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
@@ -89,18 +99,18 @@ class UnloadPlateModel(BaseModel):
         found_stack = None
         found_slot = None
         if self.plate_id and str(self.plate_id).lower() != "none":
-            try: 
-                found_stack, found_slot = self.resource_tracker.find_plate(str(self.plate_id))
+            try:
+               found_stack, found_slot = self.resource_tracker.find_plate(str(self.plate_id))
             except Exception as e:
                 raise ValueError(f"Error finding plate ID {self.plate_id}: {e}")
-            
+
             # if stack/slot also provided, validate against found location
             if self.stack and self.slot:
                 if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
                     raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
                 if found_stack != self.stack or found_slot != self.slot:
                     raise ValueError(f"Plate ID {self.plate_id} located at stack {found_stack}, slot {found_slot}, not user entered stack {self.stack}, slot {self.slot}")
-                
+
             else:
                 self.stack = found_stack
                 self.slot = found_slot
@@ -110,9 +120,9 @@ class UnloadPlateModel(BaseModel):
         # check that location is occupied (in the case of no plate_id but stack/slot provided)
         if not self.resource_tracker.is_location_occupied(self.stack, self.slot):
             raise ValueError(f"No plate found at stack {self.stack}, slot {self.slot} to unload.")
-        
+
         return self
-    
+
 
 
 

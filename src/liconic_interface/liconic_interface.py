@@ -211,7 +211,7 @@ class LICONIC:
             feedback = self.c_socket.recv(1024).decode().strip()
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
-    def read_set_shaker_speed(self, shaker_id: int = 1) -> int:  # NOT TESTED
+    def read_set_shaker_speed(self, shaker_id: int = 1) -> int:
         """
         Reads the set speed of the specified shaker.
 
@@ -241,8 +241,8 @@ class LICONIC:
         """
         if shaker_id not in [1, 2]:
             raise ValueError("shaker_id must be 1 or 2.")
-        if speed < 0 or speed > 50:
-            raise ValueError("speed must be between 0 and 50 rpm.")
+        if speed < 1 or speed > 50:
+            raise ValueError("speed must be between 1 and 50 rpm.")
 
         with self.lock:
             self.logger.debug(f"{datetime.datetime.now()} - Setting shaker speed")

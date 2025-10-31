@@ -13,20 +13,28 @@ from madsci.node_module.rest_node_module import RestNode
 from liconic_interface.liconic_interface import LICONIC
 from liconic_interface.resource_tracker import ResourceTracker
 
-from liconic_interface.pydantic_models import LoadPlateModel, UnloadPlateModel
-
-
+from liconic_interface.pydantic_models import (
+    LoadPlateModel, 
+    UnloadPlateModel, 
+    BeginShakeModel, 
+    EndShakeModel, 
+    SetTemperatureModel, 
+    SetHumidityModel
+)
 
 
 """
 TODOs:
 
-- What's the best way to set node_url?
 - Can arguments in the dashboard appear in the same order as code function arguments?
      - they seem to be alphabetical right now which is confusing
 - Construct resource path from cassette config file!
     - FOR NOW!!! just edit existing file!  - DONE! (resource tracker edited to specify slot number per stack)
-- test all load and unload argument combinations!
+- test all load and unload argument combinations
+- Test begin and end shake actions after implementing pydantic models
+- Test temperature and humidity set actions after implementing pydantic models
+- Double check temperature and humidity range limits with Liconic manual
+- 
 """
 
 
@@ -37,7 +45,6 @@ class LiconicNodeConfig(RestNodeConfig):
     liconic_driver_host: str = "localhost"
     liconic_driver_cassette_config: str = "C:\\Liconic\\stxdriver_64bit\\DriverConfig\\Devices\\CassettesConfig1.xml"
 
-    # TODO: construct contents of this resource path from cassette config file
     resources_path: Path = (
         Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
     )
@@ -115,8 +122,18 @@ class LiconicRestNode(RestNode):
         name="set_target_temp",
         description="Set the target temperature of the incubator",
     )
-    def set_target_temp(self, temp: Annotated[float, "target temperature"]):
+    def set_target_temp(self, temp: Annotated[float, "target temperature in celsius"]):
         """Sets the target temperature of the incubator"""
+
+        # Validate temperature argument with pydantic
+        try:
+            SetTemperatureModel(temperature=temp)
+        except Exception as err:
+            # Fail action, don't put device into error state
+            self.logger.log_error(f"Error validating set_target_temp arguments: {err}")
+            return ActionFailed(errors=str(err))
+        
+        # Set the target temperature
         try:
             # get the current climate conditions
             climate = self.liconic_interface.read_set_climate()
@@ -143,6 +160,15 @@ class LiconicRestNode(RestNode):
     )
     def set_target_humidity(self, humidity: Annotated[float, "target humidity"]):
         """Sets the target humidity of the incubator"""
+
+        # Validate humidity argument with pydantic
+        try:
+            SetHumidityModel(humidity=humidity)
+        except Exception as err:
+            # Fail action, don't put device into error state
+            self.logger.log_error(f"Error validating set_target_humidity arguments: {err}")
+            return ActionFailed(errors=str(err))
+
         try:
             # get the current climate conditions
             climate = self.liconic_interface.read_set_climate()
@@ -174,62 +200,64 @@ class LiconicRestNode(RestNode):
         ):
         """Activate the shaker in the liconic at the specified shaker_speed'"""
 
-        # TODO: validate shaker inputs with pydantic...
-            # TODO: remove validations from the driver??? or is it more safe to leave them in both places?
-
+        # Validate arguments with pydantic model
         try:
-            # validate shaker speed
-            shaker_speed = int(shaker_speed)
-            if shaker_speed < 1 or shaker_speed > 50:
-                raise ValueError("shaker_speed must be between 1 and 50.")
-            # check if shaker_id is valid
-            if shaker_id and str(shaker_id).lower() != "none":
-                if int(shaker_id) not in [1, 2]:
-                    raise ValueError("shaker_id, if specified, must be 1 or 2.")
-                else:
-                    self.liconic_interface.activate_shaker(shaker_id=int(shaker_id), speed=shaker_speed)
-                    time.sleep(2)  # TODO: are these sleeps necessary?
-            elif shaker_id is None or str(shaker_id).lower() == "none":
-                # activate both shakers
-                self.liconic_interface.activate_shaker(shaker_id=1, speed=shaker_speed)
-                time.sleep(2) # TODO: are these sleeps necessary?
-                self.liconic_interface.activate_shaker(shaker_id=2, speed=shaker_speed)
-                time.sleep(2) # TODO: are these sleeps necessary?
-            else:
-                raise ValueError("Invalid shaker_id value.")
+            BeginShakeModel(
+                shaker_id=shaker_id,
+                shaker_speed=shaker_speed,
+            )
         except Exception as err:
-            self.logger.log_error(f"Error starting shaker: {err}")
+            # Don't put device into error state if argument validation fails, just fail action
+            self.logger.log_error(f"Error validating begin_shake arguments: {err}")
             return ActionFailed(errors=str(err))
+        
+        # Activate shaker(s)
+        if shaker_id and str(shaker_id).lower() != "none":
+            self.liconic_interface.activate_shaker(shaker_id=int(shaker_id), speed=shaker_speed)
+            time.sleep(2)  # TODO: are these sleeps necessary?
+        elif shaker_id is None or str(shaker_id).lower() == "none":
+            # activate both shakers
+            self.liconic_interface.activate_shaker(shaker_id=1, speed=shaker_speed)
+            time.sleep(2) # TODO: are these sleeps necessary?
+            self.liconic_interface.activate_shaker(shaker_id=2, speed=shaker_speed)
+            time.sleep(2) # TODO: are these sleeps necessary?
         else:
-            return ActionSucceeded()
+            self.logger.log_error("Error starting shaker, invalid shaker id.")
+            return ActionFailed(errors="Error starting shaker, invalid shaker id.")
+        return ActionSucceeded()
 
     @action(name="end_shake", description="Stop shaking the incubator")
     def end_shake(
         self,
         shaker_id: Annotated[Optional[int], "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)"] = None):
         """Stop the shaker in the liconic"""
+
+        # Validate arguments with pydantic model
         try:
-            # check if shaker_id is valid
-            if shaker_id and str(shaker_id).lower() != "none":
-                if int(shaker_id) not in [1, 2]:
-                    raise ValueError("shaker_id, if spefified, must be 1 or 2.")
-                else:
-                    self.liconic_interface.deactivate_shaker(shaker_id=int(shaker_id))
-
-            elif shaker_id is None or str(shaker_id).lower() == "none":
-                # deactiavte both shakers
-                self.liconic_interface.deactivate_shaker(shaker_id=1)
-                self.liconic_interface.deactivate_shaker(shaker_id=2)
-
-            else:
-                raise ValueError("Invalid shaker_id value.")
+            EndShakeModel(
+                shaker_id=shaker_id,
+            )
         except Exception as err:
-            self.logger.log_error(f"Error stopping shaker: {err}")
+            # Fail action, don't put device into error state
+            self.logger.log_error(f"Error validating end_shake arguments: {err}")
             return ActionFailed(errors=str(err))
+        
+        # Deactivate shaker(s)
+        if shaker_id and str(shaker_id).lower() != "none":
+            # deactivate specified shaker
+            self.liconic_interface.deactivate_shaker(shaker_id=int(shaker_id))
+            time.sleep(2)
+        elif shaker_id is None or str(shaker_id).lower() == "none":
+            # deactiavte both shakers
+            self.liconic_interface.deactivate_shaker(shaker_id=1)
+            time.sleep(2)
+            self.liconic_interface.deactivate_shaker(shaker_id=2)
+            time.sleep(2)
         else:
-            return ActionSucceeded()
-
-    # TODO: Add incubate action? Would we ever want to block for incubating on this large incubator?
+            self.logger.log_error("Error stopping shaker, invalid shaker id.")
+            return ActionFailed(errors="Error stopping shaker, invalid shaker id.")
+        return ActionSucceeded()
+    
 
     @action(name="load_plate", description="Load a plate into the incubator")
     def load_plate(
@@ -257,6 +285,7 @@ class LiconicRestNode(RestNode):
             return ActionFailed(errors=str(err))
 
         # Find next free slot if none specified
+        # TODO: move this into the model validation?
         if stack is None and slot is None:
             stack, slot = self.module_resources.get_next_free_slot(plate_type=plate_type)
 
@@ -299,18 +328,16 @@ class LiconicRestNode(RestNode):
                 slot=slot,
                 resource_tracker=self.module_resources,
             )
+            # Extract validated values
+            plate_id = model.plate_id
+            stack = model.stack
+            slot = model.slot
         except Exception as err:
             # Don't put device into error state if argument validation fails, just fail action
             self.logger.log_error(f"Error validating unload_plate arguments: {err}")
             return ActionFailed(errors=str(err))
 
-        # Extract validated values
-        plate_id = model.plate_id
-        stack = model.stack
-        slot = model.slot
-        self.logger.info(f"Unload plate arguments after validation: plate_id={plate_id}, stack={stack}, slot={slot}")
-
-        # Check if transfer station is occupied, must be clear to unload
+        # Ensure transfer station is clear
         if self.liconic_interface.read_transfer_station_detector() == 1:
             self.logger.log_error("Transfer station occupied, please clear it before unloading.")
             return ActionFailed(errors="Transfer station occupied, please clear it before unloading.")

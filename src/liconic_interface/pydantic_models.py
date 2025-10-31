@@ -52,7 +52,7 @@ class LoadPlateModel(BaseModel):
 
         return self
 
-# TODO: continue testing!!!
+
 class UnloadPlateModel(BaseModel):
     plate_id: Optional[str] = None
     stack: Optional[int] = None
@@ -75,27 +75,20 @@ class UnloadPlateModel(BaseModel):
         if not self.resource_tracker:
             raise ValueError("resource_tracker must be provided for UnloadPlateModel validation")
 
-        # Validate combination of inputs
-        # TODO: check that this could not just be if not self.plate_id ...
+        # 2. Validate combination of inputs
         entered_plate_id = self.plate_id and str(self.plate_id).lower() != "none"
         entered_both_stack_and_slot = True if self.stack is not None and self.slot is not None else False
-        print(f"entered_plate_id: {entered_plate_id}, entered_both_stack_and_slot: {entered_both_stack_and_slot}")
-        # if not entered_plate_id:
-        #     raise ValueError("plate_id must be provided to unload a plate")
-        # if not entered_both_stack_and_slot:
-        #     raise ValueError("both stack and slot must be provided to unload a plate")
         if entered_plate_id or entered_both_stack_and_slot:
             pass
         else:
             raise ValueError("plate_id or both stack and slot must be provided")
 
-
+        # 3. If stack/slot provided, validate combination
         if self.stack and self.slot:
-            # if stack/slot provided, validate combination
             if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
                 raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
 
-        # if plate_id is provided, find stack/slot
+        # 4. If plate_id is provided, find stack/slot
         found_stack = None
         found_slot = None
         if self.plate_id and str(self.plate_id).lower() != "none":
@@ -104,7 +97,7 @@ class UnloadPlateModel(BaseModel):
             except Exception as e:
                 raise ValueError(f"Error finding plate ID {self.plate_id}: {e}")
 
-            # if stack/slot also provided, validate against found location
+            # 4a. If stack/slot also provided, validate against found location
             if self.stack and self.slot:
                 if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
                     raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
@@ -115,14 +108,54 @@ class UnloadPlateModel(BaseModel):
                 self.stack = found_stack
                 self.slot = found_slot
 
-        # TESTING if we reach here, we should have valid stack and slot values
+        # NOTE: At this point, we have either:
+        #   a) found stack/slot from plate_id
+        #   b) validated stack/slot provided
 
-        # check that location is occupied (in the case of no plate_id but stack/slot provided)
+        # check that plate is located in stack/slot location (in case where user provided stack/slot but not plate_id)
         if not self.resource_tracker.is_location_occupied(self.stack, self.slot):
             raise ValueError(f"No plate found at stack {self.stack}, slot {self.slot} to unload.")
 
         return self
 
+
+class BeginShakeModel(BaseModel):
+    shaker_id: int | None
+    shaker_speed: int
+
+    @field_validator("shaker_id")
+    def validate_shaker_id(cls, v):
+        if v not in [1,2, None]:
+            raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
+        return v
+    
+    @field_validator("shaker_speed")
+    def validate_shaker_speed(cls, v):
+        if v < 1 or v > 50:
+            raise ValueError("shaker_speed must be between 1 and 50")
+        return v
+    
+class EndShakeModel(BaseModel):
+    shaker_id: int | None
+
+    @field_validator("shaker_id")
+    def validate_shaker_id(cls, v):
+        if v not in [1,2, None]:
+            raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
+        return v
+    
+def SetTemperatureModel(BaseModel):
+    temperature: float
+
+    @field_validator("temperature")
+    def validate_temperature(cls, v):
+        if v < 4.0 or v > 50.0:
+            raise ValueError("temperature must be in celcius between 4.0 and 50.0")
+        return v
+    
+
+
+  
 
 
 

@@ -77,15 +77,14 @@ class UnloadPlateModel(BaseModel):
 
         # 2. Validate combination of inputs
         entered_plate_id = self.plate_id and str(self.plate_id).lower() != "none"
-        entered_both_stack_and_slot = True if self.stack is not None and self.slot is not None else False
+        entered_both_stack_and_slot = bool(self.stack) and bool(self.slot)
         if entered_plate_id or entered_both_stack_and_slot:
             pass
         else:
             raise ValueError("plate_id or both stack and slot must be provided")
 
         # 3. If stack/slot provided, validate combination
-        if self.stack and self.slot:
-            if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
+        if (self.stack and self.slot) and not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
                 raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
 
         # 4. If plate_id is provided, find stack/slot
@@ -128,13 +127,13 @@ class BeginShakeModel(BaseModel):
         if v not in [1,2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
-    
+
     @field_validator("shaker_speed")
     def validate_shaker_speed(cls, v):
         if v < 1 or v > 50:
             raise ValueError("shaker_speed must be between 1 and 50")
         return v
-    
+
 class EndShakeModel(BaseModel):
     shaker_id: int | None
 
@@ -143,7 +142,7 @@ class EndShakeModel(BaseModel):
         if v not in [1,2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
-    
+
 class SetTemperatureModel(BaseModel):
     temperature: float
 
@@ -152,7 +151,7 @@ class SetTemperatureModel(BaseModel):
         if v < 4.0 or v > 50.0:
             raise ValueError("temperature must be in celcius between 4.0 and 50.0")
         return v
-    
+
 class SetHumidityModel(BaseModel):
     humidity: float
 
@@ -162,7 +161,7 @@ class SetHumidityModel(BaseModel):
             raise ValueError("humidity must be between 0.0 and 95.0 percent")
         return v
 
-  
+
 
 
 

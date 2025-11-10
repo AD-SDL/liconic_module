@@ -8,8 +8,7 @@ from liconic_interface.labware_definitions import plate_definitions
 from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
 """
-TODOs:
-- be consistent with naming conventions for labware definitions vs plate definitions
+TODO:
 - add functionality to return elapsed time of plate storage
 """
 

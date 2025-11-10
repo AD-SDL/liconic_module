@@ -14,6 +14,8 @@ TODOs:
 - edit liconic resoures to format from CassetteConfiguration.xml
 - figure out how to interpret system status
 
+
+
 """
 
 class LICONIC:
@@ -375,3 +377,4 @@ class LICONIC:
 
 if __name__ == "__main__":
     liconic = LICONIC()
+    print("LiCONiC incubator device connected") 

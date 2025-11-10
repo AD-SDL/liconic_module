@@ -3,23 +3,27 @@ from typing import Optional, Any
 
 
 class LoadPlateModel(BaseModel):
+    """Model for loading a plate into the Liconic incubator"""
+
     plate_type: str
     plate_id: Optional[str] = None
     stack: Optional[int] = None
     slot: Optional[int] = None
     resource_tracker : Any = None
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any):
         super().__init__(**data)
 
     @field_validator("stack")
-    def validate_stack(cls, v):
+    def validate_stack(cls, v: Optional[int]) -> Optional[int]:
         if v is not None and (v < 1 or v > 4):
             raise ValueError("stack must be between 1 and 4")
         return v
 
     @model_validator(mode="after")
-    def validate_with_resource_tracker(self):
+    def validate_with_resource_tracker(self) -> "LoadPlateModel":
+        """Validates the load plate model using the resource tracker"""
+
         # 1. Validate plate_type
         if not self.resource_tracker.is_valid_plate_type(self.plate_type):
             raise ValueError(f"Invalid plate type: {self.plate_type})")
@@ -54,22 +58,25 @@ class LoadPlateModel(BaseModel):
 
 
 class UnloadPlateModel(BaseModel):
+    """Model for unloading a plate from the Liconic incubator"""
+
     plate_id: Optional[str] = None
     stack: Optional[int] = None
     slot: Optional[int] = None
     resource_tracker : Any = None
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any):
         super().__init__(**data)
 
     @field_validator("stack")
-    def validate_stack(cls, v):
+    def validate_stack(cls, v: Optional[int]) -> Optional[int]:
         if v is not None and (v < 1 or v > 4):
             raise ValueError("stack must be between 1 and 4")
         return v
 
     @model_validator(mode="after")
     def validate_with_resource_tracker(self) -> "UnloadPlateModel":
+        """Validates the unload plate model using the resource tracker"""
 
         # 1. Ensure resource_tracker is provided
         if not self.resource_tracker:
@@ -94,7 +101,7 @@ class UnloadPlateModel(BaseModel):
             try:
                found_stack, found_slot = self.resource_tracker.find_plate(str(self.plate_id))
             except Exception as e:
-                raise ValueError(f"Error finding plate ID {self.plate_id}: {e}")
+                raise Exception(f"Error finding plate ID {self.plate_id}: {e}")
 
             # 4a. If stack/slot also provided, validate against found location
             if self.stack and self.slot:
@@ -107,11 +114,13 @@ class UnloadPlateModel(BaseModel):
                 self.stack = found_stack
                 self.slot = found_slot
 
-        # NOTE: At this point, we have either:
-        #   a) found stack/slot from plate_id
-        #   b) validated stack/slot provided
+        """
+        NOTE: At this point, we have either:
+          a) found stack/slot from plate_id
+          b) validated stack/slot provided
+        """
 
-        # check that plate is located in stack/slot location (in case where user provided stack/slot but not plate_id)
+        # 5. Check that plate is located in stack/slot location (in case where user provided stack/slot but not plate_id)
         if not self.resource_tracker.is_location_occupied(self.stack, self.slot):
             raise ValueError(f"No plate found at stack {self.stack}, slot {self.slot} to unload.")
 
@@ -119,44 +128,55 @@ class UnloadPlateModel(BaseModel):
 
 
 class BeginShakeModel(BaseModel):
+    """Model for beginning a shake operation in the Liconic incubator"""
+
     shaker_id: int | None
     shaker_speed: int
 
     @field_validator("shaker_id")
-    def validate_shaker_id(cls, v):
+    def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:
         if v not in [1,2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
 
     @field_validator("shaker_speed")
-    def validate_shaker_speed(cls, v):
+    def validate_shaker_speed(cls, v: Optional[int]) -> Optional[int]:
         if v < 1 or v > 50:
             raise ValueError("shaker_speed must be between 1 and 50")
         return v
 
+
 class EndShakeModel(BaseModel):
+    """Model for ending a shake operation in the Liconic incubator"""
+    
     shaker_id: int | None
 
     @field_validator("shaker_id")
-    def validate_shaker_id(cls, v):
+    def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:
         if v not in [1,2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
 
+
 class SetTemperatureModel(BaseModel):
+    """Model for setting the target temperature of the Liconic incubator"""
+    
     temperature: float
 
     @field_validator("temperature")
-    def validate_temperature(cls, v):
+    def validate_temperature(cls, v: Optional[float]) -> Optional[float]:
         if v < 4.0 or v > 50.0:
             raise ValueError("temperature must be in celcius between 4.0 and 50.0")
         return v
 
+
 class SetHumidityModel(BaseModel):
+    """Model for setting the target humidity of the Liconic incubator"""
+    
     humidity: float
 
     @field_validator("humidity")
-    def validate_humidity(cls, v):
+    def validate_humidity(cls, v: Optional[float]) -> Optional[float]:
         if v < 0.0 or v > 95.0:
             raise ValueError("humidity must be between 0.0 and 95.0 percent")
         return v

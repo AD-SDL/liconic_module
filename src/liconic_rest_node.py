@@ -1,11 +1,10 @@
 """REST-based client for the Liconic on Windows systems."""
 
 import time
-import logging
 from pathlib import Path
 from typing import Annotated, Optional
 
-from madsci.common.types.action_types import ActionFailed, ActionSucceeded
+from madsci.common.types.action_types import ActionFailed, ActionSucceeded, ActionResult
 from madsci.common.types.node_types import RestNodeConfig
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
@@ -14,26 +13,22 @@ from liconic_interface.liconic_interface import LICONIC
 from liconic_interface.resource_tracker import ResourceTracker
 
 from liconic_interface.pydantic_models import (
-    LoadPlateModel, 
-    UnloadPlateModel, 
-    BeginShakeModel, 
-    EndShakeModel, 
-    SetTemperatureModel, 
+    LoadPlateModel,
+    UnloadPlateModel,
+    BeginShakeModel,
+    EndShakeModel,
+    SetTemperatureModel,
     SetHumidityModel
 )
 
 
 """
 TODOs:
-
-- Can arguments in the dashboard appear in the same order as code function arguments?
-     - they seem to be alphabetical right now which is confusing
-- Construct resource path from cassette config file!
-    - FOR NOW!!! just edit existing file!  - DONE! (resource tracker edited to specify slot number per stack)
-- test all load and unload argument combinations
+- Construct resource file from cassette config file
+- Test all load and unload argument combinations
 - Test begin and end shake actions after implementing pydantic models
-- Test temperature and humidity set actions after implementing pydantic models
 - Double check temperature and humidity range limits with Liconic manual
+- Admin commands
 
 """
 
@@ -104,7 +99,7 @@ class LiconicRestNode(RestNode):
             self.cached_target_humidity = target_climate[1]
 
             transfer_station_status = self.liconic_interface.read_transfer_station_detector()
-            self.cached_transfer_station_occupied = True if transfer_station_status == 1 else False
+            self.cached_transfer_station_occupied = transfer_station_status == 1
             if transfer_station_status == -1:
                 self.cached_transfer_station_occupied = "ERROR"
 
@@ -122,7 +117,7 @@ class LiconicRestNode(RestNode):
         name="set_target_temp",
         description="Set the target temperature of the incubator",
     )
-    def set_target_temp(self, temp: Annotated[float, "target temperature in celsius"]):
+    def set_target_temp(self, temp: Annotated[float, "target temperature in celsius"]) -> ActionResult:
         """Sets the target temperature of the incubator"""
 
         # Validate temperature argument with pydantic
@@ -132,7 +127,7 @@ class LiconicRestNode(RestNode):
             # Fail action, don't put device into error state
             self.logger.log_error(f"Error validating set_target_temp arguments: {err}")
             return ActionFailed(errors=str(err))
-        
+
         # Set the target temperature
         try:
             # get the current climate conditions
@@ -158,7 +153,7 @@ class LiconicRestNode(RestNode):
         name="set_target_humidity",
         description="Set the target humidity of the incubator",
     )
-    def set_target_humidity(self, humidity: Annotated[float, "target humidity"]):
+    def set_target_humidity(self, humidity: Annotated[float, "target humidity"]) -> ActionResult:
         """Sets the target humidity of the incubator"""
 
         # Validate humidity argument with pydantic
@@ -197,7 +192,7 @@ class LiconicRestNode(RestNode):
         self,
         shaker_id: Annotated[Optional[int], "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)"] = None,
         shaker_speed: Annotated[int, "shaker speed (1-50 valid, default 20 = 200rpm)"] = 20
-        ):
+        ) -> ActionResult:
         """Activate the shaker in the liconic at the specified shaker_speed'"""
 
         # Validate arguments with pydantic model
@@ -210,17 +205,17 @@ class LiconicRestNode(RestNode):
             # Don't put device into error state if argument validation fails, just fail action
             self.logger.log_error(f"Error validating begin_shake arguments: {err}")
             return ActionFailed(errors=str(err))
-        
+
         # Activate shaker(s)
         if shaker_id and str(shaker_id).lower() != "none":
             self.liconic_interface.activate_shaker(shaker_id=int(shaker_id), speed=shaker_speed)
-            time.sleep(2)  # TODO: are these sleeps necessary?
+            time.sleep(2)
         elif shaker_id is None or str(shaker_id).lower() == "none":
             # activate both shakers
             self.liconic_interface.activate_shaker(shaker_id=1, speed=shaker_speed)
-            time.sleep(2) # TODO: are these sleeps necessary?
+            time.sleep(2)
             self.liconic_interface.activate_shaker(shaker_id=2, speed=shaker_speed)
-            time.sleep(2) # TODO: are these sleeps necessary?
+            time.sleep(2)
         else:
             self.logger.log_error("Error starting shaker, invalid shaker id.")
             return ActionFailed(errors="Error starting shaker, invalid shaker id.")
@@ -229,7 +224,8 @@ class LiconicRestNode(RestNode):
     @action(name="end_shake", description="Stop shaking the incubator")
     def end_shake(
         self,
-        shaker_id: Annotated[Optional[int], "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)"] = None):
+        shaker_id: Annotated[Optional[int], "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)"] = None
+        ) -> ActionResult:
         """Stop the shaker in the liconic"""
 
         # Validate arguments with pydantic model
@@ -241,7 +237,7 @@ class LiconicRestNode(RestNode):
             # Fail action, don't put device into error state
             self.logger.log_error(f"Error validating end_shake arguments: {err}")
             return ActionFailed(errors=str(err))
-        
+
         # Deactivate shaker(s)
         if shaker_id and str(shaker_id).lower() != "none":
             # deactivate specified shaker
@@ -257,7 +253,7 @@ class LiconicRestNode(RestNode):
             self.logger.log_error("Error stopping shaker, invalid shaker id.")
             return ActionFailed(errors="Error stopping shaker, invalid shaker id.")
         return ActionSucceeded()
-    
+
 
     @action(name="load_plate", description="Load a plate into the incubator")
     def load_plate(
@@ -285,16 +281,15 @@ class LiconicRestNode(RestNode):
             return ActionFailed(errors=str(err))
 
         # Find next free slot if none specified
-        # TODO: move this into the model validation?
         if stack is None and slot is None:
             stack, slot = self.module_resources.get_next_free_slot(plate_type=plate_type)
 
-        # # 5. Check if there's a plate in the transfer station
-        # # TODO: re-enable this check after testing!
-        # if self.liconic_interface.read_transfer_station_detector() == 0:
-        #     return action_failed(
-        #         "Load_plate command cannot be completed, no plate in transfer station"
-        #     )
+        # 5. Check if there's a plate in the transfer station
+        if self.liconic_interface.read_transfer_station_detector() == 0:
+            self.logger.log_error("Load_plate command cannot be completed, no plate in transfer station.")
+            return ActionFailed(
+                "Load_plate command cannot be completed, no plate in transfer station"
+            )
 
         # Load the plate
         self.liconic_interface.load_plate(stack=stack,slot=slot)
@@ -315,7 +310,7 @@ class LiconicRestNode(RestNode):
         plate_id: Annotated[Optional[str], "plate id"] = None,
         stack: Annotated[Optional[int], "stacker number (1-4)"] = None,
         slot: Annotated[Optional[int], "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4)"] = None,
-    ):
+    ) -> ActionResult:
         """Unload a plate from the incubator"""
 
         # Validate arguments with pydantic model

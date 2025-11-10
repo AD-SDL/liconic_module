@@ -58,11 +58,11 @@ If you wish to install the dependencies using pdm, use the following command:
 
 The LiCONiC interface (liconic_interface.py) connects to and communicates with the StoreX TCP/IP driver over the port specified durring installation of the TCP/IP driver (default host: "localhost", default port: 3333). 
 
-Test the interface connection with the command below:
+Test the interface connection with the command below. "LiCONiC incubator device connected" will print to the command line if connection to the running StoreX TCP/IP server is successful.
 
-    python your\\path\\to\\liconic_interface.py --device <(optional) your COM port> --dll_path <(optional) path to incubator control dll (ComLib.dll)>
+    python your\\path\\to\\liconic_interface.py --host <(optional) host location of StoreX TCP/IP driver> --port <(optional) port location of the StoreX TCP/IP driver>
 
---device will default to "COM5" and -dll_path will default to "C:\\Program Files\\INHECO\\Incubator-Control\\ComLib.dll".
+--host will default to "localhost" and -port will default to 3333.
 
 Example usage with no optional arguments:
 
@@ -70,7 +70,14 @@ Example usage with no optional arguments:
 
 Example usage with optional device argument:
 
-    python inheco_incubator_interface.py --device "COM5" --dll_path "C:\\Program Files\\INHECO\\Incubator-Control\\ComLib.dll"
+    python inheco_incubator_interface.py --host "localhost" --port 3333
+
+This will print "Inheco incubator device connected" along with the specified COM port if the interface is able to connect correctly to the device.
+
+You can also use this Python interface in other programs. The link below shows an example Python program which uses the Inheco interface to demonstrate all functions available in the interface.
+
+[Example interface usage](https://github.com/AD-SDL/inheco_incubator_module/blob/main/examples/interface_usage_example.py)
+
 
 
 

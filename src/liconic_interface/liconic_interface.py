@@ -4,6 +4,7 @@ import datetime
 import logging
 import socket
 import threading
+import argparse
 
 """
 TODOs:
@@ -376,5 +377,24 @@ class LICONIC:
 
 
 if __name__ == "__main__":
-    liconic = LICONIC()
-    print("LiCONiC incubator device connected") 
+    # Argument parser so users can test interface directly 
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument(
+        "--host",
+        type=str,
+        help="Host location for the StoreX TCP/IP driver",
+        default="localhost",
+    )
+    argparser.add_argument(
+        "--port",
+        type=int,
+        help="Port location for the StoreX TCP/IP driver",
+        default=3333,
+    )
+    args = argparser.parse_args()
+    host = args.host
+    port = args.port
+
+    # intitialize liconic driver connection for direct testing
+    liconic = LICONIC(host=host, port=port)
+    print(f"LiCONiC incubator device connected: {host=}, {port=}") 

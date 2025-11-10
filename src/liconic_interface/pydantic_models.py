@@ -1,5 +1,6 @@
-from pydantic import BaseModel, field_validator, model_validator, PrivateAttr
-from typing import Optional, Any
+from typing import Any, Optional
+
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class LoadPlateModel(BaseModel):
@@ -9,7 +10,7 @@ class LoadPlateModel(BaseModel):
     plate_id: Optional[str] = None
     stack: Optional[int] = None
     slot: Optional[int] = None
-    resource_tracker : Any = None
+    resource_tracker: Any = None
 
     def __init__(self, **data: Any):
         super().__init__(**data)
@@ -30,20 +31,30 @@ class LoadPlateModel(BaseModel):
 
         # 2. Validate stack/slot pairing
         if bool(self.stack) ^ bool(self.slot):
-            raise ValueError("Must specify both stack and slot when loading into a specific location.")
+            raise ValueError(
+                "Must specify both stack and slot when loading into a specific location."
+            )
 
         # 3. If stack and slot are provided, check that combination is valid
         if self.stack and self.slot:
             # 3a. check that the stack is valid for the specified plate type
-            valid_stacks = self.resource_tracker.find_valid_stack(plate_type=self.plate_type)
+            valid_stacks = self.resource_tracker.find_valid_stack(
+                plate_type=self.plate_type
+            )
             if self.stack not in valid_stacks:
-                raise ValueError(f"Stack {self.stack} not valid for plate type {self.plate_type}")
+                raise ValueError(
+                    f"Stack {self.stack} not valid for plate type {self.plate_type}"
+                )
             # 3b. check that the stack/slot combination is valid
             if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
-                raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
+                raise ValueError(
+                    f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
+                )
             # 3c. check that the location is not already occupied
             if self.resource_tracker.is_location_occupied(self.stack, self.slot):
-                raise ValueError(f"Location stack {self.stack}, slot {self.slot} already occupied.")
+                raise ValueError(
+                    f"Location stack {self.stack}, slot {self.slot} already occupied."
+                )
 
         # 4. Prevent duplicate plate ids
         if self.plate_id and str(self.plate_id).lower() != "none":
@@ -63,7 +74,7 @@ class UnloadPlateModel(BaseModel):
     plate_id: Optional[str] = None
     stack: Optional[int] = None
     slot: Optional[int] = None
-    resource_tracker : Any = None
+    resource_tracker: Any = None
 
     def __init__(self, **data: Any):
         super().__init__(**data)
@@ -80,7 +91,9 @@ class UnloadPlateModel(BaseModel):
 
         # 1. Ensure resource_tracker is provided
         if not self.resource_tracker:
-            raise ValueError("resource_tracker must be provided for UnloadPlateModel validation")
+            raise ValueError(
+                "resource_tracker must be provided for UnloadPlateModel validation"
+            )
 
         # 2. Validate combination of inputs
         entered_plate_id = self.plate_id and str(self.plate_id).lower() != "none"
@@ -91,24 +104,34 @@ class UnloadPlateModel(BaseModel):
             raise ValueError("plate_id or both stack and slot must be provided")
 
         # 3. If stack/slot provided, validate combination
-        if (self.stack and self.slot) and not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
-                raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
+        if (self.stack and self.slot) and not self.resource_tracker.is_valid_stack_slot(
+            self.stack, self.slot
+        ):
+            raise ValueError(
+                f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
+            )
 
         # 4. If plate_id is provided, find stack/slot
         found_stack = None
         found_slot = None
         if self.plate_id and str(self.plate_id).lower() != "none":
             try:
-               found_stack, found_slot = self.resource_tracker.find_plate(str(self.plate_id))
+                found_stack, found_slot = self.resource_tracker.find_plate(
+                    str(self.plate_id)
+                )
             except Exception as e:
                 raise Exception(f"Error finding plate ID {self.plate_id}: {e}")
 
             # 4a. If stack/slot also provided, validate against found location
             if self.stack and self.slot:
                 if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
-                    raise ValueError(f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}")
+                    raise ValueError(
+                        f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
+                    )
                 if found_stack != self.stack or found_slot != self.slot:
-                    raise ValueError(f"Plate ID {self.plate_id} located at stack {found_stack}, slot {found_slot}, not user entered stack {self.stack}, slot {self.slot}")
+                    raise ValueError(
+                        f"Plate ID {self.plate_id} located at stack {found_stack}, slot {found_slot}, not user entered stack {self.stack}, slot {self.slot}"
+                    )
 
             else:
                 self.stack = found_stack
@@ -122,7 +145,9 @@ class UnloadPlateModel(BaseModel):
 
         # 5. Check that plate is located in stack/slot location (in case where user provided stack/slot but not plate_id)
         if not self.resource_tracker.is_location_occupied(self.stack, self.slot):
-            raise ValueError(f"No plate found at stack {self.stack}, slot {self.slot} to unload.")
+            raise ValueError(
+                f"No plate found at stack {self.stack}, slot {self.slot} to unload."
+            )
 
         return self
 
@@ -135,7 +160,7 @@ class BeginShakeModel(BaseModel):
 
     @field_validator("shaker_id")
     def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:
-        if v not in [1,2, None]:
+        if v not in [1, 2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
 
@@ -148,19 +173,19 @@ class BeginShakeModel(BaseModel):
 
 class EndShakeModel(BaseModel):
     """Model for ending a shake operation in the Liconic incubator"""
-    
+
     shaker_id: int | None
 
     @field_validator("shaker_id")
     def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:
-        if v not in [1,2, None]:
+        if v not in [1, 2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
 
 
 class SetTemperatureModel(BaseModel):
     """Model for setting the target temperature of the Liconic incubator"""
-    
+
     temperature: float
 
     @field_validator("temperature")
@@ -172,7 +197,7 @@ class SetTemperatureModel(BaseModel):
 
 class SetHumidityModel(BaseModel):
     """Model for setting the target humidity of the Liconic incubator"""
-    
+
     humidity: float
 
     @field_validator("humidity")
@@ -180,17 +205,3 @@ class SetHumidityModel(BaseModel):
         if v < 0.0 or v > 95.0:
             raise ValueError("humidity must be between 0.0 and 95.0 percent")
         return v
-
-
-
-
-
-
-
-
-
-
-
-
-
-

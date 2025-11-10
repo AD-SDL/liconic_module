@@ -1,32 +1,31 @@
 """Connects to the Liconic Windows driver for testing purposes."""
 
+import argparse
 import datetime
 import logging
 import socket
 import threading
-import argparse
 
 """
 TODOs:
 - test all deepwell locations with load and unload
-- determine load and unload stacks with plate type in module!
 - what is a soft reset vs regular reset?
 - check that log file ends up in a good spot
 - edit liconic resoures to format from CassetteConfiguration.xml
 - figure out how to interpret system status
-
-
+- add dimensions to deep_96_well in labware_definitions
 
 """
+
 
 class LICONIC:
     """Python interface for control of the LiCONiC STX88 incubator"""
 
     def __init__(
         self,
-        host: str = "localhost",  # TODO: do I need to rename this?
-        port: int = 3333,    # TODO: do I need to rename this?
-    )-> socket.socket:
+        host: str = "localhost",
+        port: int = 3333,
+    ) -> socket.socket:
         """Creates LiCONiC interface and connects to the device."""
 
         # set up logging
@@ -100,11 +99,12 @@ class LICONIC:
         # WHAT IS A SOFT RESET???
         """Performs a soft reset of the StoreX incubator. Empty feedback response expected."""
         with self.lock:
-            self.logger.debug(f"{datetime.datetime.now()} - Performing soft reset of Liconic")
+            self.logger.debug(
+                f"{datetime.datetime.now()} - Performing soft reset of Liconic"
+            )
             self.c_socket.send(f"STX2SoftReset({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-
 
     # CLIMATE CONTROL METHODS
     def read_actual_climate(self) -> list[float]:
@@ -124,9 +124,13 @@ class LICONIC:
             self.c_socket.send(f"STX2ReadActualClimate({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             actual_climate = feedback.split(";")
-            actual_climate = [float(value) for value in actual_climate]  # convert strings to floats
+            actual_climate = [
+                float(value) for value in actual_climate
+            ]  # convert strings to floats
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-            self.logger.debug(f"{datetime.datetime.now()} - Actual Climate Data: {actual_climate}")
+            self.logger.debug(
+                f"{datetime.datetime.now()} - Actual Climate Data: {actual_climate}"
+            )
             return actual_climate
 
     def write_set_climate(
@@ -134,7 +138,7 @@ class LICONIC:
         temperature: float = 37.0,
         humidity: float = 95.0,
         co2: float = 10.0,
-        n2: float = 0.0
+        n2: float = 0.0,
     ) -> None:
         """
         Writes the desired climate settings to the StoreX incubator.
@@ -170,11 +174,14 @@ class LICONIC:
             self.c_socket.send(f"STX2ReadSetClimate({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             set_climate = feedback.split(";")
-            set_climate = [float(value) for value in set_climate]  # convert strings to floats
+            set_climate = [
+                float(value) for value in set_climate
+            ]  # convert strings to floats
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
-            self.logger.debug(f"{datetime.datetime.now()} - Set Climate Data: {set_climate}")
+            self.logger.debug(
+                f"{datetime.datetime.now()} - Set Climate Data: {set_climate}"
+            )
             return set_climate
-
 
     # SHAKER CONTROL METHODS
     def activate_shaker(self, shaker_id: int = None, speed: int = 20) -> None:
@@ -254,7 +261,6 @@ class LICONIC:
             feedback = self.c_socket.recv(1024).decode().strip()
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
 
-
     # LOAD AND UNLOAD METHODS
     def load_plate(self, stack: int, slot: int) -> int:
         """
@@ -274,7 +280,9 @@ class LICONIC:
                 -5 - error loading a plate
         """
         with self.lock:
-            self.logger.debug(f"{datetime.datetime.now()} - Loading plate into stack {stack}, slot {slot}")
+            self.logger.debug(
+                f"{datetime.datetime.now()} - Loading plate into stack {stack}, slot {slot}"
+            )
             command = f"STX2LoadPlate({self.device_ID},{stack},{slot})\r"
             self.c_socket.send(command.encode())
             feedback = self.c_socket.recv(1024).decode().strip()
@@ -299,13 +307,14 @@ class LICONIC:
                 -5 - error unloading a plate
         """
         with self.lock:
-            self.logger.debug(f"{datetime.datetime.now()} - Unloading plate from stack {stack}, slot {slot}")
+            self.logger.debug(
+                f"{datetime.datetime.now()} - Unloading plate from stack {stack}, slot {slot}"
+            )
             command = f"STX2UnloadPlate({self.device_ID},{stack},{slot})\r"
             self.c_socket.send(command.encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
             return feedback
-
 
     # SENSOR AND ERROR METHODS
     def read_transfer_station_detector(self) -> int:
@@ -319,7 +328,9 @@ class LICONIC:
                 -1 - error
         """
         with self.lock:
-            self.logger.debug(f"{datetime.datetime.now()} - Reading transfer station detector")
+            self.logger.debug(
+                f"{datetime.datetime.now()} - Reading transfer station detector"
+            )
             command = f"STX2ReadXferStationDetector1({self.device_ID})\r"
             self.c_socket.send(command.encode())
             feedback = self.c_socket.recv(1024).decode().strip()
@@ -367,17 +378,15 @@ class LICONIC:
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
             return int(feedback)
 
-    @ property
+    @property
     def is_busy(self) -> bool:
         """Returns whether the incubator is busy.
         TODO: is there a way to ask the device if it is busy???"""
         return bool(self.lock.locked())
 
 
-
-
 if __name__ == "__main__":
-    # Argument parser so users can test interface directly 
+    # Argument parser so users can test interface directly
     argparser = argparse.ArgumentParser()
     argparser.add_argument(
         "--host",
@@ -395,6 +404,10 @@ if __name__ == "__main__":
     host = args.host
     port = args.port
 
-    # intitialize liconic driver connection for direct testing
-    liconic = LICONIC(host=host, port=port)
-    print(f"LiCONiC incubator device connected: {host=}, {port=}") 
+    try:
+        # intitialize liconic driver connection for direct testing
+        liconic = LICONIC(host=host, port=port)
+        print(f"LiCONiC incubator device connected: {host=}, {port=}")
+    except Exception as e:
+        print(f"Error connecting to LiCONiC incubator driver at {host=}, {port=}")
+        raise e

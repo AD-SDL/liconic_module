@@ -2,15 +2,17 @@
 
 import datetime
 from pathlib import Path
-from typing import Optional, Union, Dict
+from typing import Optional, Union
+
+from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
 from liconic_interface.labware_definitions import plate_definitions
-from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
 """
 TODO:
 - add functionality to return elapsed time of plate storage
 """
+
 
 class Slot(BaseModel):
     """Defines the structure of a slot"""
@@ -22,6 +24,7 @@ class Slot(BaseModel):
 
 class Stack(BaseModel):
     """Defines the structure of a stack"""
+
     slots: dict[int, Slot] = {}
 
     def __init__(self, num_slots: int = 22, **data) -> None:
@@ -44,7 +47,8 @@ class Stack(BaseModel):
 
 class ResourceFile(BaseModel):
     """Defines the structure of the resource file"""
-    stacks: dict[int, Stack] = {}   # TESTING PURPOSES
+
+    stacks: dict[int, Stack] = {}  # TESTING PURPOSES
 
     def model_post_init(self, __context: any) -> None:
         if not self.stacks:
@@ -74,7 +78,9 @@ class ResourceTracker:
     def __init__(self, resource_path: Optional[Union[Path, str]] = None) -> None:
         """Initialize the resource tracker"""
         # Load labware definitions
-        self.labware_definitions = plate_definitions   # TODO: be more consistent with naming!
+        self.labware_definitions = (
+            plate_definitions  # TODO: be more consistent with naming!
+        )
 
         # Set up the resource file path
         if not resource_path:
@@ -116,10 +122,12 @@ class ResourceTracker:
         # Validations if funtion is called directly
         if not self.is_valid_plate_type(plate_type):
             raise ValueError(f"Unsupported plate type: {plate_type}")
-        if not stack in self.find_valid_stack(plate_type):
+        if stack not in self.find_valid_stack(plate_type):
             raise ValueError(f"Invalid stack {stack} for plate type {plate_type}")
         if not self.is_valid_stack_slot(stack, slot):
-            raise ValueError(f"Invalid stack/slot combination: stack {stack}, slot {slot}")
+            raise ValueError(
+                f"Invalid stack/slot combination: stack {stack}, slot {slot}"
+            )
         if self.is_location_occupied(stack, slot):
             raise Exception("Location already occupied")
 
@@ -135,16 +143,20 @@ class ResourceTracker:
         self,
         plate_id: Optional[str] = None,
         stack: Optional[int] = None,
-        slot: Optional[int] = None
+        slot: Optional[int] = None,
     ) -> None:
         """
         locates and removes the given plate from the resource file
         """
         # check that user provided enough information
         if plate_id is None and stack is None and slot is None:
-            raise ValueError("Must specify plate_id or stack and slot to remove a plate")
+            raise ValueError(
+                "Must specify plate_id or stack and slot to remove a plate"
+            )
         if plate_id is None and (stack is None or slot is None):
-            raise ValueError("Must specify both stack and slot to remove a plate by location")
+            raise ValueError(
+                "Must specify both stack and slot to remove a plate by location"
+            )
         # find plate if only plate_id is given
         if plate_id and (stack is None or slot is None):
             stack, slot = self.find_plate(plate_id)
@@ -177,12 +189,13 @@ class ResourceTracker:
 
         candidate_stacks = self.find_valid_stack(plate_type)
         if candidate_stacks:
-
             # Get occupancy count for each stack in the group
             stack_occupancy = {}
             for stack_id in candidate_stacks:
                 stack = self.resources.stacks[(stack_id)]
-                occupied_count = sum(1 for slot in stack.slots.values() if slot.occupied)
+                occupied_count = sum(
+                    1 for slot in stack.slots.values() if slot.occupied
+                )
                 stack_occupancy[stack_id] = occupied_count
 
             # Pick the stack with fewer occupied slots (to balance load)
@@ -190,7 +203,10 @@ class ResourceTracker:
             stack_to_use = min(stack_occupancy, key=lambda s: (stack_occupancy[s], s))
 
             # Find the lowest-numbered free slot in that stack
-            for slot_id_str, slot in sorted(self.resources.stacks[(stack_to_use)].slots.items(), key=lambda x: int(x[0])):
+            for slot_id_str, slot in sorted(
+                self.resources.stacks[(stack_to_use)].slots.items(),
+                key=lambda x: int(x[0]),
+            ):
                 if not slot.occupied:
                     return stack_to_use, int(slot_id_str)
 
@@ -198,7 +214,10 @@ class ResourceTracker:
             for alt_stack_id in candidate_stacks:
                 if alt_stack_id == stack_to_use:
                     continue
-                for slot_id_str, slot in sorted(self.resources.stacks[str(alt_stack_id)].slots.items(), key=lambda x: int(x[0])):
+                for slot_id_str, slot in sorted(
+                    self.resources.stacks[str(alt_stack_id)].slots.items(),
+                    key=lambda x: int(x[0]),
+                ):
                     if not slot.occupied:
                         return alt_stack_id, int(slot_id_str)
 
@@ -249,6 +268,7 @@ class ResourceTracker:
         if slot not in self.resources[stack].slots:
             valid = False
         return valid
+
 
 if __name__ == "__main__":
     test = ResourceTracker()

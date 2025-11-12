@@ -8,11 +8,6 @@ from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
 from liconic_interface.labware_definitions import plate_definitions
 
-"""
-TODO:
-- add functionality to return elapsed time of plate storage
-"""
-
 
 class Slot(BaseModel):
     """Defines the structure of a slot"""
@@ -48,7 +43,7 @@ class Stack(BaseModel):
 class ResourceFile(BaseModel):
     """Defines the structure of the resource file"""
 
-    stacks: dict[int, Stack] = {}  # TESTING PURPOSES
+    stacks: dict[int, Stack] = {}  
 
     def model_post_init(self, __context: any) -> None:
         if not self.stacks:
@@ -77,9 +72,10 @@ class ResourceTracker:
 
     def __init__(self, resource_path: Optional[Union[Path, str]] = None) -> None:
         """Initialize the resource tracker"""
+
         # Load labware definitions
         self.labware_definitions = (
-            plate_definitions  # TODO: be more consistent with naming!
+            plate_definitions  
         )
 
         # Set up the resource file path
@@ -89,6 +85,8 @@ class ResourceTracker:
             )
         else:
             self.resource_path = Path(resource_path)
+
+        # Load existing or create new resource file
         if self.resource_path.exists():
             self.resources = ResourceFile.from_yaml(self.resource_path)
         else:
@@ -104,7 +102,7 @@ class ResourceTracker:
         plate_id: Optional[str] = None,
     ) -> None:
         """
-        updates the liconic resource file when a new plate is placed into the liconic
+        Updates the liconic resource file when a new plate is placed into the liconic.
 
         Note: some validations are included here for safety if this function is called directly.
         Args:
@@ -119,7 +117,7 @@ class ResourceTracker:
             Exception: if location is already occupied
 
         """
-        # Validations if funtion is called directly
+        # Validations if function is called directly
         if not self.is_valid_plate_type(plate_type):
             raise ValueError(f"Unsupported plate type: {plate_type}")
         if stack not in self.find_valid_stack(plate_type):
@@ -146,9 +144,16 @@ class ResourceTracker:
         slot: Optional[int] = None,
     ) -> None:
         """
-        locates and removes the given plate from the resource file
+        Locates and removes the given plate from the resource file
+
+        Args: 
+            plate_type (str): type of plate being added
+            stack (int): stack number where plate is being added
+            slot (int): slot number where plate is being added
+
+        # TODO: Remove duplicate checks!
         """
-        # check that user provided enough information
+        # Check that user provided enough information
         if plate_id is None and stack is None and slot is None:
             raise ValueError(
                 "Must specify plate_id or stack and slot to remove a plate"
@@ -157,18 +162,23 @@ class ResourceTracker:
             raise ValueError(
                 "Must specify both stack and slot to remove a plate by location"
             )
-        # find plate if only plate_id is given
+        # Find plate if only plate_id is given
         if plate_id and (stack is None or slot is None):
             stack, slot = self.find_plate(plate_id)
         if not self.resources[stack][slot].occupied:
             raise Exception("No plate in location")
         self.resources[stack][slot] = Slot()
-        # TODO: get elapsed time of plate storage
         self.update_resource_file()
 
     def find_plate(self, plate_id: str) -> tuple[int, int]:
         """
-        returns the stack and slot a plate is located on, given the plate id
+        Returns the stack and slot a plate is located on, given the plate id
+
+        Args: 
+            plate_type (str):  name of the plate that matches existing plate definition
+
+        Returns: 
+            tuple[int, int]: Tuple with the (stack, slot) location of the plate with the specified plate_id
         """
         for stack_key, stack in self.resources.stacks.items():
             for slot_key, slot in stack.slots.items():
@@ -178,13 +188,18 @@ class ResourceTracker:
 
     def get_next_free_slot(self, plate_type: str) -> tuple[int, int]:
         """
-        if no stack and shelf is passed into add_plate, return the next free location
+        If no stack and shelf is passed into add_plate, return the next free location
+
+        Args: 
+            plate_type (str):  name of the plate that matches existing plate definition
+
+        Returns: 
+            tuple[int, int]: Tuple with a (stack, slot) combination of next available location
 
         Behavior:
            - all microplates ("flat_bottom_96well") will be loaded into stacks 1 and 2
            - all deepwell plates ("deep_96well") will be loaded into stacks 3 and 4
-
-           stacks will alternate between 1 and 2 (or 3 and 4) to balance shakers
+           - stacks will alternate between 1 and 2 (or 3 and 4) to balance shakers
         """
 
         candidate_stacks = self.find_valid_stack(plate_type)
@@ -226,25 +241,46 @@ class ResourceTracker:
 
     def is_location_occupied(self, stack: int, slot: int) -> bool:
         """
-        given a stack and slot, determine if the location is occupied
+        Given a stack and slot, determine if the location is occupied
+
+        Args: 
+            stack (int): stack number in the incubator
+            slot (int): slot number in the stack
+
+        Returns: 
+            bool: True if location occupied, False otherwise
+
         """
         return self.resources[int(stack)][int(slot)].occupied
 
     def get_plate_id(self, stack: int, slot: int) -> str:
         """
-        pull the plate id of the plate located in given stack and slot
+        Pull the plate id of the plate located in given stack and slot
+
+        Args: 
+            stack (int): stack number in the incubator
+            slot (int): slot number in the stack
+
+        Returns: 
+            plate_id of plate at given stack/slot location
         """
         return self.resources[int(stack)][int(slot)]["plate_id"]
 
     def update_resource_file(self) -> None:
         """
-        updates the external resource file to match self.resources
+        Updates the external resource file to match self.resources
         """
         self.resources.to_yaml(self.resource_path)
 
     def find_valid_stack(self, plate_type: str) -> list[int]:
         """
-        returns a list of valid stacks for the given plate type
+        Returns a list of valid stacks for the given plate type
+
+        Args: 
+            plate_type (str): name of the plate that matches existing plate definition
+
+        Returns: 
+            list[int] = list of stack numbers that are valid for the given plate type
         """
         valid_stacks = []
         if plate_type not in self.labware_definitions:
@@ -256,11 +292,26 @@ class ResourceTracker:
         return valid_stacks
 
     def is_valid_plate_type(self, plate_type: str) -> bool:
+        """Checks if plate type is valid based on labware definitions
+
+        Args: 
+            plate_type (str): name of the plate that matches existing plate definition
+
+        Returns: 
+            bool: True if plate type is valid, False otherwise
+        """
         return plate_type in self.labware_definitions
 
     def is_valid_stack_slot(self, stack: int, slot: int) -> bool:
         """
-        checks if the given stack and slot are valid for the current configuration
+        Checks if the given stack and slot are valid for the current configuration
+
+        Args: 
+            stack (int): stack number in the incubator
+            slot (int): slot number in the stack (numbered bottom to top)
+
+        Returns: 
+            bool: True if stack/slot combination is valid for the current configuration, False otherwise
         """
         valid = True
         if stack not in self.resources.stacks:

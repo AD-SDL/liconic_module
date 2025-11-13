@@ -1,6 +1,7 @@
+"""Labware definitions for use in the rapid350 MADSci workcell"""
+
 from liconic_interface.resource_types import PlateResource
 
-# Dimensions of labware used on the BIO_Workcells
 plate_definitions = {
     "flat_bottom_96well": PlateResource(
         plate_height=14,

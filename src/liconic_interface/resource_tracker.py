@@ -2,7 +2,7 @@
 
 import datetime
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 
@@ -20,9 +20,10 @@ class Slot(BaseModel):
 class Stack(BaseModel):
     """Defines the structure of a stack"""
 
-    slots: dict[int, Slot] = {}
+    slots: dict[int, Slot]
 
-    def __init__(self, num_slots: int = 22, **data) -> None:
+    def __init__(self, num_slots: int = 22, **data: Any) -> None:
+        """Initializes the stack object"""
         if "slots" not in data:
             data["slots"] = {slot: Slot() for slot in range(1, num_slots + 1)}
         super().__init__(**data)
@@ -43,9 +44,10 @@ class Stack(BaseModel):
 class ResourceFile(BaseModel):
     """Defines the structure of the resource file"""
 
-    stacks: dict[int, Stack] = {}  
+    stacks: dict[int, Stack]
 
     def model_post_init(self, __context: any) -> None:
+        """Initializes the stack arrangement of the resource file"""
         if not self.stacks:
             self.stacks = {
                 1: Stack(num_slots=22),
@@ -74,9 +76,7 @@ class ResourceTracker:
         """Initialize the resource tracker"""
 
         # Load labware definitions
-        self.labware_definitions = (
-            plate_definitions  
-        )
+        self.labware_definitions = plate_definitions
 
         # Set up the resource file path
         if not resource_path:
@@ -146,7 +146,7 @@ class ResourceTracker:
         """
         Locates and removes the given plate from the resource file
 
-        Args: 
+        Args:
             plate_type (str): type of plate being added
             stack (int): stack number where plate is being added
             slot (int): slot number where plate is being added
@@ -174,10 +174,10 @@ class ResourceTracker:
         """
         Returns the stack and slot a plate is located on, given the plate id
 
-        Args: 
+        Args:
             plate_type (str):  name of the plate that matches existing plate definition
 
-        Returns: 
+        Returns:
             tuple[int, int]: Tuple with the (stack, slot) location of the plate with the specified plate_id
         """
         for stack_key, stack in self.resources.stacks.items():
@@ -190,10 +190,10 @@ class ResourceTracker:
         """
         If no stack and shelf is passed into add_plate, return the next free location
 
-        Args: 
+        Args:
             plate_type (str):  name of the plate that matches existing plate definition
 
-        Returns: 
+        Returns:
             tuple[int, int]: Tuple with a (stack, slot) combination of next available location
 
         Behavior:
@@ -243,11 +243,11 @@ class ResourceTracker:
         """
         Given a stack and slot, determine if the location is occupied
 
-        Args: 
+        Args:
             stack (int): stack number in the incubator
             slot (int): slot number in the stack
 
-        Returns: 
+        Returns:
             bool: True if location occupied, False otherwise
 
         """
@@ -257,11 +257,11 @@ class ResourceTracker:
         """
         Pull the plate id of the plate located in given stack and slot
 
-        Args: 
+        Args:
             stack (int): stack number in the incubator
             slot (int): slot number in the stack
 
-        Returns: 
+        Returns:
             plate_id of plate at given stack/slot location
         """
         return self.resources[int(stack)][int(slot)]["plate_id"]
@@ -276,10 +276,10 @@ class ResourceTracker:
         """
         Returns a list of valid stacks for the given plate type
 
-        Args: 
+        Args:
             plate_type (str): name of the plate that matches existing plate definition
 
-        Returns: 
+        Returns:
             list[int] = list of stack numbers that are valid for the given plate type
         """
         valid_stacks = []
@@ -294,10 +294,10 @@ class ResourceTracker:
     def is_valid_plate_type(self, plate_type: str) -> bool:
         """Checks if plate type is valid based on labware definitions
 
-        Args: 
+        Args:
             plate_type (str): name of the plate that matches existing plate definition
 
-        Returns: 
+        Returns:
             bool: True if plate type is valid, False otherwise
         """
         return plate_type in self.labware_definitions
@@ -306,11 +306,11 @@ class ResourceTracker:
         """
         Checks if the given stack and slot are valid for the current configuration
 
-        Args: 
+        Args:
             stack (int): stack number in the incubator
             slot (int): slot number in the stack (numbered bottom to top)
 
-        Returns: 
+        Returns:
             bool: True if stack/slot combination is valid for the current configuration, False otherwise
         """
         valid = True

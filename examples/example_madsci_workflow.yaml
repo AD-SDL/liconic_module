@@ -29,7 +29,7 @@ steps:
     action: end_shake
     args:
       shaker_id: 1
-    
+
   - name: Load plate
     node: liconic
     action: load_plate

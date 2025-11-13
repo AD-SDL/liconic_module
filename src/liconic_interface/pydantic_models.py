@@ -14,11 +14,13 @@ class LoadPlateModel(BaseModel):
     slot: Optional[int] = None
     resource_tracker: Any = None
 
-    def __init__(self, **data: Any):
+    def __init__(self, **data: Any) -> None:
+        """Initializes the load plate model"""
         super().__init__(**data)
 
     @field_validator("stack")
-    def validate_stack(cls, v: Optional[int]) -> Optional[int]:
+    def validate_stack(cls, v: Optional[int]) -> Optional[int]:  # noqa: N805
+        """Validates the stack user input"""
         if v is not None and (v < 1 or v > 4):
             raise ValueError("stack must be between 1 and 4")
         return v
@@ -78,11 +80,13 @@ class UnloadPlateModel(BaseModel):
     slot: Optional[int] = None
     resource_tracker: Any = None
 
-    def __init__(self, **data: Any):
+    def __init__(self, **data: Any) -> None:
+        """Initializes the Unload Plate Pydantic Model"""
         super().__init__(**data)
 
     @field_validator("stack")
-    def validate_stack(cls, v: Optional[int]) -> Optional[int]:
+    def validate_stack(cls, v: Optional[int]) -> Optional[int]:  # noqa: N805
+        """Validates stack user entered argument"""
         if v is not None and (v < 1 or v > 4):
             raise ValueError("stack must be between 1 and 4")
         return v
@@ -122,7 +126,7 @@ class UnloadPlateModel(BaseModel):
                     str(self.plate_id)
                 )
             except Exception as e:
-                raise Exception(f"Error finding plate ID {self.plate_id}: {e}")
+                raise Exception(f"Error finding plate ID {self.plate_id}: {e}") from e
 
             # 4a. If stack/slot also provided, validate against found location
             if self.stack and self.slot:
@@ -161,13 +165,15 @@ class BeginShakeModel(BaseModel):
     shaker_speed: int
 
     @field_validator("shaker_id")
-    def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:
+    def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:  # noqa: N805
+        """Validates the shaker_id argument"""
         if v not in [1, 2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
 
     @field_validator("shaker_speed")
-    def validate_shaker_speed(cls, v: Optional[int]) -> Optional[int]:
+    def validate_shaker_speed(cls, v: Optional[int]) -> Optional[int]:  # noqa: N805
+        """Validates the shaker_speed argument"""
         if v < 1 or v > 50:
             raise ValueError("shaker_speed must be between 1 and 50")
         return v
@@ -179,7 +185,8 @@ class EndShakeModel(BaseModel):
     shaker_id: int | None
 
     @field_validator("shaker_id")
-    def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:
+    def validate_shaker_id(cls, v: Optional[int]) -> Optional[int]:  # noqa: N805
+        """Validates the shaker_id argument"""
         if v not in [1, 2, None]:
             raise ValueError("shaker_id must be 1 or 2, or None for both shakers")
         return v
@@ -191,7 +198,8 @@ class SetTemperatureModel(BaseModel):
     temperature: float
 
     @field_validator("temperature")
-    def validate_temperature(cls, v: Optional[float]) -> Optional[float]:
+    def validate_temperature(cls, v: Optional[float]) -> Optional[float]:  # noqa: N805
+        """Validates the temperature argument"""
         if v < 4.0 or v > 50.0:
             raise ValueError("temperature must be in Celsius between 4.0 and 50.0")
         return v
@@ -203,7 +211,8 @@ class SetHumidityModel(BaseModel):
     humidity: float
 
     @field_validator("humidity")
-    def validate_humidity(cls, v: Optional[float]) -> Optional[float]:
+    def validate_humidity(cls, v: Optional[float]) -> Optional[float]:  # noqa: N805
+        """Validates the humidity argument"""
         if v < 0.0 or v > 95.0:
             raise ValueError("humidity must be between 0.0 and 95.0 percent")
         return v

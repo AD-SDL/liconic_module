@@ -275,7 +275,7 @@ class LiconicRestNode(RestNode):
             Optional[int],
             "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4, must also specify stack)",
         ] = None,
-    ):
+    ) -> ActionResult:
         """Load a plate into the incubator"""
 
         # Validate arguments with pydantic model

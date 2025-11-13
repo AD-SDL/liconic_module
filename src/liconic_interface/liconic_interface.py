@@ -5,6 +5,7 @@ import datetime
 import logging
 import socket
 import threading
+from typing import Optional
 
 
 class LICONIC:
@@ -173,7 +174,9 @@ class LICONIC:
             return set_climate
 
     # SHAKER CONTROL METHODS
-    def activate_shaker(self, shaker_id: int = None, speed: int = 20) -> None:
+    def activate_shaker(
+        self, shaker_id: Optional[int] = None, speed: Optional[int] = 20
+    ) -> None:
         """
         Activates the specified shaker at the specified speed.
         Blank feedback response expected.
@@ -394,9 +397,9 @@ if __name__ == "__main__":
     port = args.port
 
     try:
-        # intitialize LiCONiC driver connection for direct testing
+        # Initialize LiCONiC driver connection for direct testing
         liconic = LICONIC(host=host, port=port)
-        print(f"LiCONiC incubator device connected: {host=}, {port=}")
+        print(f"LiCONiC incubator device connected: {host=}, {port=}")  # noqa: T201
     except Exception as e:
-        print(f"Error connecting to LiCONiC incubator driver at {host=}, {port=}")
+        print(f"Error connecting to LiCONiC incubator driver at {host=}, {port=}")  # noqa: T201
         raise e

@@ -18,7 +18,7 @@ temp, humidity, co2, n2 = climate
 print(f"Actual climate: {temp=}, {humidity=}, {co2=}, {n2=}")
 
 print("\nSetting climate to 37 deg C and 95 percent humidity")
-print("Note: our device doesn't allow for CO2 or N2 control")
+print("Note: Our device doesn't allow for CO2 or N2 control")
 device.write_set_climate(temperature=37.0, humidity=95.0)
 
 print("\nReading set climate")

@@ -12,7 +12,7 @@ class PlateResource(BaseModel):
     """A plate resource that can be manipulated by the PlateCrane EX"""
 
     # Plate Properties
-    
+
     plate_height: float
     """The height measured from the bottom of the plate to the top"""
     grip_height: float

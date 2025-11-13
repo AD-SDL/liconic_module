@@ -1,8 +1,6 @@
 """This module contains the Pydantic models for the PlateCrane resource types
 
-NOTE: THIS IS TAKEN FROM THE HUDSON PLATE CRANE MODULE IN ORDER TO MAKE PLATE TYPES COMPATIBLE
-
-TODO: COME UP WITH A BETTER SYSTEM FOR SHARING COMMON TYPES BETWEEN MODULES
+NOTE: This is taken from the Hudson PlateCrane module in order to ensure plate type compatibility for now.
 """
 
 from typing import Optional
@@ -14,7 +12,7 @@ class PlateResource(BaseModel):
     """A plate resource that can be manipulated by the PlateCrane EX"""
 
     # Plate Properties
-
+    
     plate_height: float
     """The height measured from the bottom of the plate to the top"""
     grip_height: float

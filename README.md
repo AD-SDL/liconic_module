@@ -66,11 +66,11 @@ Test the interface connection with the command below:
 
 Example usage with no optional arguments:
 
-    python inheco_incubator_interface.py
+    python liconic_interface.py
 
 Example usage with optional device argument:
 
-    python inheco_incubator_interface.py --host "localhost" --port 3333
+    python liconic_interface.py --host "localhost" --port 3333
 
 "LiCONiC incubator device connected, host " will print to the command line if connection to the running StoreX TCP/IP server is successful.
 
@@ -87,7 +87,7 @@ If you would like to run these devices through MADSci, you will need to run the 
 
 The MADSci REST Node can be started in the command line using the command below. Make sure to edit the command line arguments to match your driver and REST Node configurations.
 
-    python your//path//to//liconid_rest_node.py --node_url <(optional str) address for your LiCONiC MADSci REST Node> --liconic_driver_host <(optional str) host location of StoreX TCP/IP driver> --liconic_driver_port <(optional int) port location of the StoreX TCP/IP driver>
+    python your//path//to//liconic_rest_node.py --node_url <(optional str) address for your LiCONiC MADSci REST Node> --liconic_driver_host <(optional str) host location of StoreX TCP/IP driver> --liconic_driver_port <(optional int) port location of the StoreX TCP/IP driver>
 
 --node_url will default to "http://127.0.0.1:2000", --liconic_driver_host will default to "localhost", and --liconic_driver_port will default to 3333.
 

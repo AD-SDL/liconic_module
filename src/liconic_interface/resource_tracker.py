@@ -1,4 +1,4 @@
-"""Provides a plate tracking class for managing the Liconic's storage"""
+"""Provides a plate tracking class for managing the LiCONiC's storage"""
 
 import datetime
 from pathlib import Path
@@ -68,7 +68,7 @@ class ResourceFile(BaseModel):
 
 
 class ResourceTracker:
-    """Tracks the plate resources of a Liconic incubator"""
+    """Tracks the plate resources of a LiCONiC incubator"""
 
     def __init__(self, resource_path: Optional[Union[Path, str]] = None) -> None:
         """Initialize the resource tracker"""
@@ -102,9 +102,9 @@ class ResourceTracker:
         plate_id: Optional[str] = None,
     ) -> None:
         """
-        Updates the liconic resource file when a new plate is placed into the liconic.
+        Updates the liconic resource file when a new plate is placed into the incubator.
 
-        Note: some validations are included here for safety if this function is called directly.
+        Note: Some validations are included here for safety if this function is called directly.
         Args:
             plate_type (str): type of plate being added
             stack (int): stack number where plate is being added

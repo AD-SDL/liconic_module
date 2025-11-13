@@ -1,21 +1,10 @@
-"""Connects to the Liconic Windows driver for testing purposes."""
+"""Python interface for connecting to and utilizing the LiCONiC StoreX TCP/IP Windows driver."""
 
 import argparse
 import datetime
 import logging
 import socket
 import threading
-
-"""
-TODOs:
-- test all deepwell locations with load and unload
-- what is a soft reset vs regular reset?
-- check that log file ends up in a good spot
-- edit liconic resoures to format from CassetteConfiguration.xml
-- figure out how to interpret system status
-- add dimensions to deep_96_well in labware_definitions
-
-"""
 
 
 class LICONIC:
@@ -53,7 +42,7 @@ class LICONIC:
         self.disconnect()
 
     def connect(self) -> None:
-        """Connects to the Liconic device and initializes it if necessary."""
+        """Connects to the LiCONiC device and initializes it if necessary."""
         with self.lock:
             server_address = (self.host, self.port)
             c_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -61,7 +50,7 @@ class LICONIC:
             self.c_socket = c_socket
 
     def disconnect(self) -> None:
-        """Disconnects from the Liconic device."""
+        """Disconnects from the LiCONiC device."""
         if self.c_socket:
             with self.lock:
                 self.c_socket.close()
@@ -70,7 +59,7 @@ class LICONIC:
     def activate(self) -> None:
         """Opens serial communication and initializes the StoreX incubator."""
         with self.lock:
-            self.logger.debug(f"{datetime.datetime.now()} - Activating Liconic")
+            self.logger.debug(f"{datetime.datetime.now()} - Activating LiCONiC")
             self.c_socket.send(f"STX2Activate({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
@@ -82,7 +71,7 @@ class LICONIC:
         """
         if self.c_socket:
             with self.lock:
-                self.logger.debug(f"{datetime.datetime.now()} - Deactivating Liconic")
+                self.logger.debug(f"{datetime.datetime.now()} - Deactivating LiCONiC")
                 self.c_socket.send(f"STX2Deactivate({self.device_ID})\r".encode())
                 feedback = self.c_socket.recv(1024).decode().strip()
                 self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
@@ -90,7 +79,7 @@ class LICONIC:
     def reset(self) -> None:
         """Resets the StoreX incubator. Empty feedback response expected."""
         with self.lock:
-            self.logger.debug(f"{datetime.datetime.now()} - Resetting Liconic")
+            self.logger.debug(f"{datetime.datetime.now()} - Resetting LiCONiC")
             self.c_socket.send(f"STX2Reset({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
             self.logger.debug(f"{datetime.datetime.now()} - Feedback: {feedback}")
@@ -100,7 +89,7 @@ class LICONIC:
         """Performs a soft reset of the StoreX incubator. Empty feedback response expected."""
         with self.lock:
             self.logger.debug(
-                f"{datetime.datetime.now()} - Performing soft reset of Liconic"
+                f"{datetime.datetime.now()} - Performing soft reset of LiCONiC"
             )
             self.c_socket.send(f"STX2SoftReset({self.device_ID})\r".encode())
             feedback = self.c_socket.recv(1024).decode().strip()
@@ -405,7 +394,7 @@ if __name__ == "__main__":
     port = args.port
 
     try:
-        # intitialize liconic driver connection for direct testing
+        # intitialize LiCONiC driver connection for direct testing
         liconic = LICONIC(host=host, port=port)
         print(f"LiCONiC incubator device connected: {host=}, {port=}")
     except Exception as e:

@@ -1,10 +1,12 @@
+"""MADSci compatible REST Node for LiCONiC STX incubators"""
+
 from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
 
 class LoadPlateModel(BaseModel):
-    """Model for loading a plate into the Liconic incubator"""
+    """Model for loading a plate into the LiCONiC incubator"""
 
     plate_type: str
     plate_id: Optional[str] = None
@@ -37,7 +39,7 @@ class LoadPlateModel(BaseModel):
 
         # 3. If stack and slot are provided, check that combination is valid
         if self.stack and self.slot:
-            # 3a. check that the stack is valid for the specified plate type
+            # 3a. Check that the stack is valid for the specified plate type
             valid_stacks = self.resource_tracker.find_valid_stack(
                 plate_type=self.plate_type
             )
@@ -45,12 +47,12 @@ class LoadPlateModel(BaseModel):
                 raise ValueError(
                     f"Stack {self.stack} not valid for plate type {self.plate_type}"
                 )
-            # 3b. check that the stack/slot combination is valid
+            # 3b. Check that the stack/slot combination is valid
             if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
                 raise ValueError(
                     f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
                 )
-            # 3c. check that the location is not already occupied
+            # 3c. Check that the location is not already occupied
             if self.resource_tracker.is_location_occupied(self.stack, self.slot):
                 raise ValueError(
                     f"Location stack {self.stack}, slot {self.slot} already occupied."
@@ -69,7 +71,7 @@ class LoadPlateModel(BaseModel):
 
 
 class UnloadPlateModel(BaseModel):
-    """Model for unloading a plate from the Liconic incubator"""
+    """Model for unloading a plate from the LiCONiC incubator"""
 
     plate_id: Optional[str] = None
     stack: Optional[int] = None
@@ -153,7 +155,7 @@ class UnloadPlateModel(BaseModel):
 
 
 class BeginShakeModel(BaseModel):
-    """Model for beginning a shake operation in the Liconic incubator"""
+    """Model for beginning a shake operation in the LiCONiC incubator"""
 
     shaker_id: int | None
     shaker_speed: int
@@ -172,7 +174,7 @@ class BeginShakeModel(BaseModel):
 
 
 class EndShakeModel(BaseModel):
-    """Model for ending a shake operation in the Liconic incubator"""
+    """Model for ending a shake operation in the LiCONiC incubator"""
 
     shaker_id: int | None
 
@@ -184,19 +186,19 @@ class EndShakeModel(BaseModel):
 
 
 class SetTemperatureModel(BaseModel):
-    """Model for setting the target temperature of the Liconic incubator"""
+    """Model for setting the target temperature of the LiCONiC incubator"""
 
     temperature: float
 
     @field_validator("temperature")
     def validate_temperature(cls, v: Optional[float]) -> Optional[float]:
         if v < 4.0 or v > 50.0:
-            raise ValueError("temperature must be in celcius between 4.0 and 50.0")
+            raise ValueError("temperature must be in Celsius between 4.0 and 50.0")
         return v
 
 
 class SetHumidityModel(BaseModel):
-    """Model for setting the target humidity of the Liconic incubator"""
+    """Model for setting the target humidity of the LiCONiC incubator"""
 
     humidity: float
 

@@ -1,15 +1,12 @@
 """
 Example file to demonstrate usage of the LiCONiC incubator interface through python
 
-This example assumes a device configuration of micrplate stacks in stacks 1 and 2,
+This example assumes a device configuration of microplate stacks in stacks 1 and 2,
  and deepwell stacks in stacks 3 and 4. Please edit to suit your needs.
 
-
- TODOs:
-- TEST!
 """
 
-# make sure you're running this example from a directory that allows importing this interface
+# Make sure you're running this example from a directory that allows importing this interface
 from liconic_interface.liconic_interface import LICONIC
 
 device = LICONIC(host="localhost", port=3333)

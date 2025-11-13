@@ -20,18 +20,9 @@ from liconic_interface.pydantic_models import (
 )
 from liconic_interface.resource_tracker import ResourceTracker
 
-"""
-TODOs:
-- Construct resource file from cassette config file
-- Test all load and unload argument combinations
-- Test begin and end shake actions after implementing pydantic models
-- Double check temperature and humidity range limits with Liconic manual
-- Admin commands
-"""
-
 
 class LiconicNodeConfig(RestNodeConfig):
-    """Configuration for the Liconic REST node"""
+    """Configuration for the LiCONiC REST node"""
 
     liconic_driver_port: int = 3333
     liconic_driver_host: str = "localhost"
@@ -41,7 +32,7 @@ class LiconicNodeConfig(RestNodeConfig):
 
 
 class LiconicRestNode(RestNode):
-    """REST-based client for the Liconic incubator"""
+    """REST-based client for the LiCONiC incubator"""
 
     liconic_interface: LICONIC = None
     module_resources: ResourceTracker = None
@@ -53,7 +44,7 @@ class LiconicRestNode(RestNode):
         self.logger.log("Node initializing...")
         self.logger.log_info(
             f"Using host: {self.config.liconic_driver_host}, port: {self.config.liconic_driver_port}"
-        )  # TESTING
+        )
         self.liconic_interface = LICONIC(
             self.config.liconic_driver_host, self.config.liconic_driver_port
         )
@@ -72,7 +63,6 @@ class LiconicRestNode(RestNode):
         except Exception as err:
             self.logger.log_error(f"Error shutting down the Liconic Node: {err}")
 
-    # TODO: re-implement state handler after testing!
     def state_handler(self) -> None:
         """Periodically called to update the current state of the node."""
         if self.liconic_interface is None:
@@ -205,7 +195,7 @@ class LiconicRestNode(RestNode):
             int, "shaker speed (1-50 valid, default 20 = 200rpm)"
         ] = 20,
     ) -> ActionResult:
-        """Activate the shaker in the liconic at the specified shaker_speed'"""
+        """Activate the shaker in the LiCONiC incubator at the specified shaker_speed'"""
 
         # Validate arguments with pydantic model
         try:
@@ -243,7 +233,7 @@ class LiconicRestNode(RestNode):
             "shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers)",
         ] = None,
     ) -> ActionResult:
-        """Stop the shaker in the liconic"""
+        """Stop the shaker in the LiCONiC incubator"""
 
         # Validate arguments with pydantic model
         try:
@@ -261,7 +251,7 @@ class LiconicRestNode(RestNode):
             self.liconic_interface.deactivate_shaker(shaker_id=int(shaker_id))
             time.sleep(2)
         elif shaker_id is None or str(shaker_id).lower() == "none":
-            # deactiavte both shakers
+            # deactivate both shakers
             self.liconic_interface.deactivate_shaker(shaker_id=1)
             time.sleep(2)
             self.liconic_interface.deactivate_shaker(shaker_id=2)
@@ -331,7 +321,7 @@ class LiconicRestNode(RestNode):
             plate_type=plate_type,
         )
         return ActionSucceeded(
-            data={"message": f"Plate loaded into liconic stack {stack}, slot {slot}"}
+            data={"message": f"Plate loaded into LiCONiC stack {stack}, slot {slot}"}
         )
 
     @action(name="unload_plate", description="Unload a plate from the incubator")
@@ -385,7 +375,7 @@ class LiconicRestNode(RestNode):
         self.module_resources.remove_plate(stack=stack, slot=slot)
         self.logger.info("Plate unloaded successfully.")
         return ActionSucceeded(
-            data={"message": f"Plate unloaded from liconic stack {stack}, slot {slot}"}
+            data={"message": f"Plate unloaded from LiCONiC stack {stack}, slot {slot}"}
         )
 
 

@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Annotated, Optional
 
-from madsci.common.types.action_types import ActionFailed, ActionResult, ActionSucceeded
+from madsci.common.types.action_types import ActionFailed
 from madsci.common.types.node_types import RestNodeConfig
 from madsci.common.types.resource_types import (
     Slot,
@@ -173,7 +173,6 @@ class LiconicRestNode(RestNode):
             return ActionFailed(errors=str(err))
         else:
             self.logger.log("Target temperature set successfully.")
-            # return ActionSucceeded(). # no longer return anything if successful
             return None
 
     @action(

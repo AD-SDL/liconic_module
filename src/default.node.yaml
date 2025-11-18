@@ -1,0 +1,7 @@
+node_name: LiconicRestNode
+node_id: 01KA230NXHZAS739FRRP42K4DP
+node_description: null
+node_type: device
+module_name: LiconicRestNode
+module_version: 0.0.1
+capabilities: null

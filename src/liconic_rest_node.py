@@ -141,8 +141,7 @@ class LiconicRestNode(RestNode):
         description="Set the target temperature of the incubator",
     )
     def set_target_temp(
-        self,
-        temp: Annotated[float, "target temperature in celsius"]
+        self, temp: Annotated[float, "target temperature in celsius"]
     ) -> None:
         """Sets the target temperature of the incubator"""
 
@@ -353,9 +352,7 @@ class LiconicRestNode(RestNode):
             slot=slot,
             plate_type=plate_type,
         )
-        self.logger.log_info(
-            f"Plate loaded into LiCONiC stack {stack}, slot {slot}"
-        )
+        self.logger.log_info(f"Plate loaded into LiCONiC stack {stack}, slot {slot}")
         return None
 
     @action(name="unload_plate", description="Unload a plate from the incubator")

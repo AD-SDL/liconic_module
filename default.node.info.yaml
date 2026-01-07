@@ -9,6 +9,7 @@ capabilities:
   get_state: true
   get_status: true
   send_action: true
+  get_action_status: true
   get_action_result: true
   get_action_history: true
   action_files: true
@@ -29,15 +30,19 @@ actions:
     args:
       temp:
         name: temp
-        description: target temperature
+        description: target temperature in celsius
         argument_type: float
         required: true
         default: null
     locations: {}
     files: {}
     results: {}
-    blocking: false
+    blocking: true
     asynchronous: true
+    accepts_var_args: false
+    accepts_var_kwargs: false
+    var_args_schema: null
+    var_kwargs_schema: null
   set_target_humidity:
     name: set_target_humidity
     description: Set the target humidity of the incubator
@@ -51,8 +56,12 @@ actions:
     locations: {}
     files: {}
     results: {}
-    blocking: false
+    blocking: true
     asynchronous: true
+    accepts_var_args: false
+    accepts_var_kwargs: false
+    var_args_schema: null
+    var_kwargs_schema: null
   begin_shake:
     name: begin_shake
     description: Begin shaking the incubator at the specified speed
@@ -73,8 +82,12 @@ actions:
     locations: {}
     files: {}
     results: {}
-    blocking: false
+    blocking: true
     asynchronous: true
+    accepts_var_args: false
+    accepts_var_kwargs: false
+    var_args_schema: null
+    var_kwargs_schema: null
   end_shake:
     name: end_shake
     description: Stop shaking the incubator
@@ -89,8 +102,12 @@ actions:
     locations: {}
     files: {}
     results: {}
-    blocking: false
+    blocking: true
     asynchronous: true
+    accepts_var_args: false
+    accepts_var_kwargs: false
+    var_args_schema: null
+    var_kwargs_schema: null
   load_plate:
     name: load_plate
     description: Load a plate into the incubator
@@ -123,8 +140,12 @@ actions:
     locations: {}
     files: {}
     results: {}
-    blocking: false
+    blocking: true
     asynchronous: true
+    accepts_var_args: false
+    accepts_var_kwargs: false
+    var_args_schema: null
+    var_kwargs_schema: null
   unload_plate:
     name: unload_plate
     description: Unload a plate from the incubator
@@ -150,22 +171,33 @@ actions:
     locations: {}
     files: {}
     results: {}
-    blocking: false
+    blocking: true
     asynchronous: true
+    accepts_var_args: false
+    accepts_var_kwargs: false
+    var_args_schema: null
+    var_kwargs_schema: null
 config:
   node_definition: default.node.yaml
   node_info_path: null
   update_node_files: true
   status_update_interval: 2.0
   state_update_interval: 2.0
-  node_url: http://hudson01.cels.anl.gov:2005
-  uvicorn_kwargs: {}
+  node_url: http://hudson01.cels.anl.gov:2005/
+  uvicorn_kwargs:
+    limit_concurrency: 10
+  enable_rate_limiting: true
+  rate_limit_requests: 100
+  rate_limit_window: 60
+  rate_limit_short_requests: 50
+  rate_limit_short_window: 1
+  rate_limit_cleanup_interval: 300
   liconic_driver_port: 3333
   liconic_driver_host: localhost
-  liconic_driver_cassette_config: C:\Liconic\stxdriver_64bit\DriverConfig\Devices\CassettesConfig1.xml
-  resources_path: C:\Users\svcaibio\.madsci\liconic\liconic_resources.yaml
+  inventory_tracker_path: C:\Users\svcaibio\.madsci\liconic\liconic_resources.yaml
+  cassette_config_path: C:\Liconic\stxdriver_64bit\DriverConfig\Devices\CassettesConfig1.xml
 config_schema:
-  description: Configuration for the Liconic REST node
+  description: Configuration for the LiCONiC REST node
   properties:
     node_definition:
       anyOf:
@@ -210,14 +242,65 @@ config_schema:
       description: The interval in seconds at which the node should update its state.
       title: State Update Interval
     node_url:
-      default: http://hudson01.cels.anl.gov:2005
-      title: Node Url
+      default: http://127.0.0.1:2000/
+      description: The URL used to communicate with the node. This is the base URL
+        for the REST API.
+      format: uri
+      minLength: 1
+      title: Node URL
       type: string
     uvicorn_kwargs:
       additionalProperties: true
-      description: Configuration for the Uvicorn server that runs the REST API.
+      description: Configuration for the Uvicorn server that runs the REST API. By
+        default, sets limit_concurrency=10 to protect against connection exhaustion
+        attacks.
       title: Uvicorn Configuration
       type: object
+    enable_rate_limiting:
+      default: true
+      description: Enable rate limiting middleware for the REST API.
+      title: Enable Rate Limiting
+      type: boolean
+    rate_limit_requests:
+      default: 100
+      description: Maximum number of requests allowed per long time window (only used
+        if enable_rate_limiting is True).
+      minimum: 1
+      title: Rate Limit Requests
+      type: integer
+    rate_limit_window:
+      default: 60
+      description: Long time window in seconds for rate limiting (only used if enable_rate_limiting
+        is True).
+      minimum: 1
+      title: Rate Limit Window
+      type: integer
+    rate_limit_short_requests:
+      anyOf:
+      - minimum: 1
+        type: integer
+      - type: 'null'
+      default: 50
+      description: Maximum number of requests allowed per short time window for burst
+        protection (only used if enable_rate_limiting is True). If None, short window
+        limiting is disabled.
+      title: Rate Limit Short Requests
+    rate_limit_short_window:
+      anyOf:
+      - minimum: 1
+        type: integer
+      - type: 'null'
+      default: 1
+      description: Short time window for burst protection in seconds (only used if
+        enable_rate_limiting is True). If None, short window limiting is disabled.
+      title: Rate Limit Short Window
+    rate_limit_cleanup_interval:
+      default: 300
+      description: Interval in seconds between cleanup operations to prevent memory
+        leaks (only used if enable_rate_limiting is True).
+      minimum: 1
+      title: Rate Limit Cleanup Interval
+      type: integer
     liconic_driver_port:
       default: 3333
       title: Liconic Driver Port
@@ -226,14 +309,15 @@ config_schema:
       default: localhost
       title: Liconic Driver Host
       type: string
-    liconic_driver_cassette_config:
-      default: C:\Liconic\stxdriver_64bit\DriverConfig\Devices\CassettesConfig1.xml
-      title: Liconic Driver Cassette Config
-      type: string
-    resources_path:
+    inventory_tracker_path:
       default: C:\Users\svcaibio\.madsci\liconic\liconic_resources.yaml
       format: path
-      title: Resources Path
+      title: Inventory Tracker Path
+      type: string
+    cassette_config_path:
+      default: C:\Liconic\stxdriver_64bit\DriverConfig\Devices\CassettesConfig1.xml
+      format: path
+      title: Cassette Config Path
       type: string
   title: LiconicNodeConfig
   type: object

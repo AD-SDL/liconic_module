@@ -4,7 +4,9 @@ import datetime
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from defusedxml.ElementTree import parse
 from madsci.common.types.base_types import MadsciBaseModel as BaseModel
+from pydantic import Field
 
 from liconic_interface.labware_definitions import plate_definitions
 
@@ -41,58 +43,70 @@ class Stack(BaseModel):
         del self.slots[key]
 
 
-class ResourceFile(BaseModel):
-    """Defines the structure of the resource file"""
+class InventoryFile(BaseModel):
+    """Defines the structure of the inventory file"""
+    cassette_stacks: dict[int, int] = Field(
+        exclude=True,
+        repr=False,
+    )
+    stacks: dict[int, Stack] = Field(default_factory=dict)
 
-    stacks: dict[int, Stack]
+    def model_post_init(self, __context: Any) -> None:
+        """Initializes the stacks based on cassette_stacks"""
+        if self.stacks:
+            return
 
-    def model_post_init(self, __context: any) -> None:
-        """Initializes the stack arrangement of the resource file"""
-        if not self.stacks:
-            self.stacks = {
-                1: Stack(num_slots=22),
-                2: Stack(num_slots=22),
-                3: Stack(num_slots=10),
-                4: Stack(num_slots=10),
-            }
+        self.stacks = {
+            stack_id: Stack(num_slots=levels)
+            for stack_id, levels in self.cassette_stacks.items()
+        }
 
     def __getitem__(self, item: int) -> Stack:
-        """Get a stack in the resource file"""
+        """Get a stack in the inventory file"""
         return self.stacks[item]
 
     def __setitem__(self, key: int, value: Stack) -> None:
-        """Set a stack in the resource file"""
+        """Set a stack in the inventory file"""
         self.stacks[key] = value
 
     def __delitem__(self, key: int) -> None:
-        """Delete a stack in the resource file"""
+        """Delete a stack in the inventory file"""
         del self.stacks[key]
 
 
-class ResourceTracker:
-    """Tracks the plate resources of a LiCONiC incubator"""
+class InventoryTracker:
+    """Tracks the plate inventory of a LiCONiC incubator"""
 
-    def __init__(self, resource_path: Optional[Union[Path, str]] = None) -> None:
-        """Initialize the resource tracker"""
+    def __init__(
+        self,
+        cassette_config_path: Union[Path, str],
+        inventory_path: Optional[Union[Path, str]] = None) -> None:
+        """Initialize the inventory tracker"""
 
         # Load labware definitions
         self.labware_definitions = plate_definitions
+        self.cassette_config_path = Path(cassette_config_path).expanduser().resolve()
+        self.stacks_dict = {}
 
-        # Set up the resource file path
-        if not resource_path:
-            self.resource_path = (
-                Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
+        # Set up the inventory file path
+        if not inventory_path:
+            self.inventory_path = (
+                Path.home() / ".madsci" / "liconic" / "liconic_inventory.yaml"
             )
         else:
-            self.resource_path = Path(resource_path)
+            self.inventory_path = Path(inventory_path)
 
-        # Load existing or create new resource file
-        if self.resource_path.exists():
-            self.resources = ResourceFile.from_yaml(self.resource_path)
+        # Load existing or create new inventory file
+        if self.inventory_path.exists():
+            self.inventory = InventoryFile.from_yaml(self.inventory_path)
         else:
-            self.resource_path.parent.mkdir(parents=True, exist_ok=True)
-            self.resources = ResourceFile()
-            self.update_resource_file()
+            # create the file
+            self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # parse the cassette config to determine stack sizes
+            self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
+            self.inventory = InventoryFile(cassette_stacks=self.stacks_dict)
+            self.update_inventory_file()
 
     def add_plate(
         self,
@@ -102,7 +116,7 @@ class ResourceTracker:
         plate_id: Optional[str] = None,
     ) -> None:
         """
-        Updates the liconic resource file when a new plate is placed into the incubator.
+        Updates the liconic inventory file when a new plate is placed into the incubator.
 
         Note: Some validations are included here for safety if this function is called directly.
         Args:
@@ -129,13 +143,13 @@ class ResourceTracker:
         if self.is_location_occupied(stack, slot):
             raise Exception("Location already occupied")
 
-        # Add the plate to the resource file
-        self.resources[stack][slot] = Slot(
+        # Add the plate to the inventory file
+        self.inventory[stack][slot] = Slot(
             occupied=True,
             plate_id=plate_id,
             time_added=str(datetime.datetime.now()),
         )
-        self.update_resource_file()
+        self.update_inventory_file()
 
     def remove_plate(
         self,
@@ -144,7 +158,7 @@ class ResourceTracker:
         slot: Optional[int] = None,
     ) -> None:
         """
-        Locates and removes the given plate from the resource file
+        Locates and removes the given plate from the inventory file
 
         Args:
             plate_type (str): type of plate being added
@@ -165,10 +179,10 @@ class ResourceTracker:
         # Find plate if only plate_id is given
         if plate_id and (stack is None or slot is None):
             stack, slot = self.find_plate(plate_id)
-        if not self.resources[stack][slot].occupied:
+        if not self.inventory[stack][slot].occupied:
             raise Exception("No plate in location")
-        self.resources[stack][slot] = Slot()
-        self.update_resource_file()
+        self.inventory[stack][slot] = Slot()
+        self.update_inventory_file()
 
     def find_plate(self, plate_id: str) -> tuple[int, int]:
         """
@@ -180,7 +194,7 @@ class ResourceTracker:
         Returns:
             tuple[int, int]: Tuple with the (stack, slot) location of the plate with the specified plate_id
         """
-        for stack_key, stack in self.resources.stacks.items():
+        for stack_key, stack in self.inventory.stacks.items():
             for slot_key, slot in stack.slots.items():
                 if slot.plate_id == plate_id:
                     return stack_key, slot_key
@@ -207,7 +221,7 @@ class ResourceTracker:
             # Get occupancy count for each stack in the group
             stack_occupancy = {}
             for stack_id in candidate_stacks:
-                stack = self.resources.stacks[(stack_id)]
+                stack = self.inventory.stacks[(stack_id)]
                 occupied_count = sum(
                     1 for slot in stack.slots.values() if slot.occupied
                 )
@@ -219,7 +233,7 @@ class ResourceTracker:
 
             # Find the lowest-numbered free slot in that stack
             for slot_id_str, slot in sorted(
-                self.resources.stacks[(stack_to_use)].slots.items(),
+                self.inventory.stacks[(stack_to_use)].slots.items(),
                 key=lambda x: int(x[0]),
             ):
                 if not slot.occupied:
@@ -230,7 +244,7 @@ class ResourceTracker:
                 if alt_stack_id == stack_to_use:
                     continue
                 for slot_id_str, slot in sorted(
-                    self.resources.stacks[str(alt_stack_id)].slots.items(),
+                    self.inventory.stacks[str(alt_stack_id)].slots.items(),
                     key=lambda x: int(x[0]),
                 ):
                     if not slot.occupied:
@@ -251,7 +265,7 @@ class ResourceTracker:
             bool: True if location occupied, False otherwise
 
         """
-        return self.resources[int(stack)][int(slot)].occupied
+        return self.inventory[int(stack)][int(slot)].occupied
 
     def get_plate_id(self, stack: int, slot: int) -> str:
         """
@@ -264,13 +278,13 @@ class ResourceTracker:
         Returns:
             plate_id of plate at given stack/slot location
         """
-        return self.resources[int(stack)][int(slot)]["plate_id"]
+        return self.inventory[int(stack)][int(slot)]["plate_id"]
 
-    def update_resource_file(self) -> None:
+    def update_inventory_file(self) -> None:
         """
-        Updates the external resource file to match self.resources
+        Updates the external inventory file to match self.inventory
         """
-        self.resources.to_yaml(self.resource_path)
+        self.inventory.to_yaml(self.inventory_path)
 
     def find_valid_stack(self, plate_type: str) -> list[int]:
         """
@@ -314,12 +328,36 @@ class ResourceTracker:
             bool: True if stack/slot combination is valid for the current configuration, False otherwise
         """
         valid = True
-        if stack not in self.resources.stacks:
+        if stack not in self.inventory.stacks:
             valid = False
-        if slot not in self.resources[stack].slots:
+        if slot not in self.inventory[stack].slots:
             valid = False
         return valid
 
 
+    def parse_cassette_config(self, cassette_config_path: Path) -> dict[int, int]:
+        """
+        Returns {cassette_id: levels}
+        """
+        tree = parse(cassette_config_path)
+        root = tree.getroot()
+
+        ns = {"ns": "http://com.liconic/cassettesconfig"}
+
+        stacks: dict[int, int] = {}
+
+        for cassette in root.findall("ns:Cassettes", ns):
+            id_el = cassette.find("ns:Id", ns)
+            levels_el = cassette.find("ns:Levels", ns)
+
+            # Ignore range-based entries (Min/Max) for now
+            if id_el is None or levels_el is None:
+                continue
+
+            stacks[int(id_el.text)] = int(levels_el.text)
+
+        return stacks
+
+
 if __name__ == "__main__":
-    test = ResourceTracker()
+    test = InventoryTracker()

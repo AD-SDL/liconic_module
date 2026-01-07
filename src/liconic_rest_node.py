@@ -21,7 +21,7 @@ from liconic_interface.pydantic_models import (
     SetTemperatureModel,
     UnloadPlateModel,
 )
-from liconic_interface.resource_tracker import ResourceTracker
+from liconic_interface.inventory_tracker import InventoryTracker
 
 
 class LiconicNodeConfig(RestNodeConfig):
@@ -29,21 +29,27 @@ class LiconicNodeConfig(RestNodeConfig):
 
     liconic_driver_port: int = 3333
     liconic_driver_host: str = "localhost"
-    resources_path: Path = (
+    inventory_tracker_path: Path = (
         Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
     )
-
+    cassette_config_path: Path = Path(
+        "C:/Liconic/stxdriver_64bit/DriverConfig/Devices/CassettesConfig1.xml"
+    )
 
 class LiconicRestNode(RestNode):
     """REST-based client for the LiCONiC incubator"""
 
     liconic_interface: LICONIC = None
-    module_resources: ResourceTracker = None
+    module_inventory: InventoryTracker = None
     config: LiconicNodeConfig = LiconicNodeConfig()
     config_model = LiconicNodeConfig
 
     def startup_handler(self) -> None:
         """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
+
+        # set up internal inventory tracker
+        self.inventory_tracker_path = Path(self.config.inventory_tracker_path).expanduser().resolve()
+        self.module_inventory = InventoryTracker(self.config.cassette_config_path, self.inventory_tracker_path)
 
         # create the resources
         self.init_resource_templates()
@@ -57,10 +63,6 @@ class LiconicRestNode(RestNode):
         self.liconic_interface = LICONIC(
             self.config.liconic_driver_host, self.config.liconic_driver_port
         )
-
-        # set up internal resources
-        self.resources_path = Path(self.config.resources_path).expanduser().resolve()
-        self.module_resources = ResourceTracker(self.resources_path)
 
     def shutdown_handler(self) -> None:
         """Called to shutdown the node. Should be used to close connections to devices or release any other resources."""
@@ -313,14 +315,14 @@ class LiconicRestNode(RestNode):
         # Validate arguments with pydantic model
         try:
             self.logger.info(
-                f"Resource tracker before LoadPlateModel: {self.module_resources}, type {type(self.module_resources)}"
+                f"Resource tracker before LoadPlateModel: {self.module_inventory}, type {type(self.module_inventory)}"
             )
             LoadPlateModel(
                 plate_type=plate_type,
                 plate_id=plate_id,
                 stack=stack,
                 slot=slot,
-                resource_tracker=self.module_resources,
+                resource_tracker=self.module_inventory,
             )
         except Exception as err:
             # Don't put device into error state if argument validation fails, just fail action
@@ -329,7 +331,7 @@ class LiconicRestNode(RestNode):
 
         # Find next free slot if none specified
         if stack is None and slot is None:
-            stack, slot = self.module_resources.get_next_free_slot(
+            stack, slot = self.module_inventory.get_next_free_slot(
                 plate_type=plate_type
             )
 
@@ -346,7 +348,7 @@ class LiconicRestNode(RestNode):
         self.liconic_interface.load_plate(stack=stack, slot=slot)
         while self.liconic_interface.is_busy:
             time.sleep(1)
-        self.module_resources.add_plate(
+        self.module_inventory.add_plate(
             plate_id=plate_id,
             stack=stack,
             slot=slot,
@@ -373,13 +375,13 @@ class LiconicRestNode(RestNode):
         )
         try:
             self.logger.info(
-                f"Resource tracker before LoadPlateModel: {self.module_resources}, type {type(self.module_resources)}"
+                f"Resource tracker before LoadPlateModel: {self.module_inventory}, type {type(self.module_inventory)}"
             )
             model = UnloadPlateModel(
                 plate_id=plate_id,
                 stack=stack,
                 slot=slot,
-                resource_tracker=self.module_resources,
+                resource_tracker=self.module_inventory,
             )
             # Extract validated values
             plate_id = model.plate_id
@@ -403,7 +405,7 @@ class LiconicRestNode(RestNode):
         self.liconic_interface.unload_plate(stack=stack, slot=slot)
         while self.liconic_interface.is_busy:
             time.sleep(1)
-        self.module_resources.remove_plate(stack=stack, slot=slot)
+        self.module_inventory.remove_plate(stack=stack, slot=slot)
         self.logger.info(f"Plate unloaded from LiCONiC stack {stack}, slot {slot}")
         return None
 

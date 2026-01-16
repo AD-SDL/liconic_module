@@ -46,6 +46,7 @@ class Stack(BaseModel):
 class InventoryFile(BaseModel):
     """Defines the structure of the inventory file"""
     cassette_stacks: dict[int, int] = Field(
+        default_factory=dict,
         exclude=True,
         repr=False,
     )

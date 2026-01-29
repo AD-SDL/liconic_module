@@ -75,39 +75,25 @@ class InventoryFile(BaseModel):
         del self.stacks[key]
 
 
-class InventoryTracker:
+class InventoryHandler:
     """Tracks the plate inventory of a LiCONiC incubator"""
 
     def __init__(
         self,
-        cassette_config_path: Union[Path, str],
-        inventory_path: Optional[Union[Path, str]] = None) -> None:
-        """Initialize the inventory tracker"""
+        cassette_config_path: Union[Path, str]
+    ) -> None:
+        """Initialize the inventory handler"""
 
         # Load labware definitions
         self.labware_definitions = plate_definitions
         self.cassette_config_path = Path(cassette_config_path).expanduser().resolve()
         self.stacks_dict = {}
+        # parse the cassette config to determine stack sizes
+        self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
 
-        # Set up the inventory file path
-        if not inventory_path:
-            self.inventory_path = (
-                Path.home() / ".madsci" / "liconic" / "liconic_inventory.yaml"
-            )
-        else:
-            self.inventory_path = Path(inventory_path)
+        # TESTING
+        print("STACKS DICT:", self.stacks_dict)
 
-        # Load existing or create new inventory file
-        if self.inventory_path.exists():
-            self.inventory = InventoryFile.from_yaml(self.inventory_path)
-        else:
-            # create the file
-            self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # parse the cassette config to determine stack sizes
-            self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
-            self.inventory = InventoryFile(cassette_stacks=self.stacks_dict)
-            self.update_inventory_file()
 
     def add_plate(
         self,

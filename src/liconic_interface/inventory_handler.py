@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from defusedxml.ElementTree import parse
+from madsci.client.resource_client import ResourceClient
 from madsci.common.types.base_types import MadsciBaseModel as BaseModel
+from madsci.common.types.resource_types import Resource
 from pydantic import Field
 
 from liconic_interface.labware_definitions import plate_definitions
@@ -80,7 +82,10 @@ class InventoryHandler:
 
     def __init__(
         self,
-        cassette_config_path: Union[Path, str]
+        cassette_config_path: Union[Path, str],
+        module_inventory_file_path: Optional[Union[Path, str]] = None,
+        resource_client: Optional[ResourceClient] = None,
+        node_name: Optional[str] = None,
     ) -> None:
         """Initialize the inventory handler"""
 
@@ -88,11 +93,30 @@ class InventoryHandler:
         self.labware_definitions = plate_definitions
         self.cassette_config_path = Path(cassette_config_path).expanduser().resolve()
         self.stacks_dict = {}
+        self.resource_client = resource_client
+        self.node_name = node_name
+
         # parse the cassette config to determine stack sizes
         self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
 
-        # TESTING
-        print("STACKS DICT:", self.stacks_dict)
+        # Set up the inventory file path
+        if not module_inventory_file_path:
+            self.inventory_path = (
+                Path.home() / ".madsci" / "liconic" / "liconic_inventory.yaml"
+            )
+        else:
+            self.inventory_path = Path(module_inventory_file_path)
+
+        # Load existing or create new inventory file
+        if self.inventory_path.exists():
+            self.inventory = InventoryFile.from_yaml(self.inventory_path)
+        else:
+            # create the file
+            self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # populate inventory file with empty stacks/slots
+            self.inventory = InventoryFile(cassette_stacks=self.stacks_dict)
+            self.update_inventory_file()
 
 
     def add_plate(
@@ -101,6 +125,7 @@ class InventoryHandler:
         stack: int,
         slot: int,
         plate_id: Optional[str] = None,
+        conveyor_child_resource: Optional[Resource] = None,
     ) -> None:
         """
         Updates the liconic inventory file when a new plate is placed into the incubator.
@@ -138,6 +163,14 @@ class InventoryHandler:
         )
         self.update_inventory_file()
 
+        # Handle Resource Client calls
+        # Collect conveyor plate resource, if available.
+        conveyor_child_resource = self.resource_client.query_resource(resource_name=f"{self.node_name}_conveyor.nest").child
+        # Push plate resource onto stack/slot nest resource
+        stack_slot_resource = self.resource_client.query_resource(resource_name=f"{self.node_name}_stack{stack}_slot{slot}.nest")
+        self.resource_client.push(resource=stack_slot_resource, child=conveyor_child_resource)
+
+
     def remove_plate(
         self,
         plate_id: Optional[str] = None,
@@ -170,6 +203,18 @@ class InventoryHandler:
             raise Exception("No plate in location")
         self.inventory[stack][slot] = Slot()
         self.update_inventory_file()
+
+        # Handle resource client calls
+        # Collect conveyor plate resource, if available.
+        conveyor_resource = self.resource_client.query_resource(resource_name=f"{self.node_name}_conveyor.nest")
+        if conveyor_resource.child:
+            raise Exception("A child resource already exists on the conveyor nest.")
+        # Collect plate resource at stack/slot nest
+        stack_slot_resource_child = self.resource_client.query_resource(resource_name=f"{self.node_name}_stack{stack}_slot{slot}.nest").child
+        if stack_slot_resource_child is None:
+            raise Exception(f"No plate resource exists at {self.node_name}_stack{stack}_slot{slot}.nest to unload.")
+        # Push plate resource onto conveyor resource
+        self.resource_client.push(resource=conveyor_resource, child=stack_slot_resource_child)
 
     def find_plate(self, plate_id: str) -> tuple[int, int]:
         """
@@ -347,4 +392,4 @@ class InventoryHandler:
 
 
 if __name__ == "__main__":
-    test = InventoryTracker()
+    test = InventoryHandler()

@@ -12,6 +12,7 @@ from madsci.common.types.resource_types import (
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
 
+from liconic_interface.inventory_handler import InventoryHandler
 from liconic_interface.liconic_interface import LICONIC
 from liconic_interface.pydantic_models import (
     BeginShakeModel,
@@ -21,7 +22,6 @@ from liconic_interface.pydantic_models import (
     SetTemperatureModel,
     UnloadPlateModel,
 )
-from liconic_interface.inventory_handler import InventoryHandler
 
 
 class LiconicNodeConfig(RestNodeConfig):
@@ -31,6 +31,9 @@ class LiconicNodeConfig(RestNodeConfig):
     liconic_driver_host: str = "localhost"
     cassette_config_path: Path = Path(
         "C:/Liconic/stxdriver_64bit/DriverConfig/Devices/CassettesConfig1.xml"
+    )
+    module_inventory_file_path: Path = Path(
+        Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
     )
     node_definition: Path = Path("C:/Users/svcaibio/source/repos/liconic_module/definitions/liconic_lisa.node.yaml")
     # TODO: why does specifying node_definition path not work from the command line?
@@ -46,12 +49,17 @@ class LiconicRestNode(RestNode):
     def startup_handler(self) -> None:
         """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
 
-        # set up internal inventory handler
-        self.inventory_handler = InventoryHandler(self.config.cassette_config_path)
+        # set up internal inventory handler (PARSES CASSETTE CONFIG AND LOADS/CREATES INVENTORY FILE)
+        self.inventory_handler = InventoryHandler(
+            self.config.cassette_config_path,
+            self.config.module_inventory_file_path,
+            self.resource_client,
+            self.node_definition.node_name,
+            )
 
         # create the resources
         self.init_resource_templates()
-        self.create_resources()
+        self.create_resources()  # (CREATES MADSCI RESOURCES FROM CASSETTE DETAILS PARSED BY INVENTORY HANDLER)
 
         # initialize the node
         self.logger.log("Node initializing...")
@@ -108,7 +116,7 @@ class LiconicRestNode(RestNode):
         # create the conveyor belt plate nest resource
         self.plate_carrier = self.resource_client.create_resource_from_template(
             template_name="liconic_conveyor.nest",
-            resource_name=f"{self.node_definition.node_name}_plate_nest",
+            resource_name=f"{self.node_definition.node_name}_conveyor.nest",
         )
 
         # create stack and slot nest resources inside the incubator
@@ -117,7 +125,7 @@ class LiconicRestNode(RestNode):
             for i in range(self.inventory_handler.stacks_dict[stack]):
                 self.resource_client.create_resource_from_template(
                     template_name=template_name,
-                    resource_name=f"{self.node_definition.node_name}_stack{stack}_slot{i+1}",
+                    resource_name=f"{self.node_definition.node_name}_stack{stack}_slot{i+1}.nest",
                 )
                 time.sleep(0.02) # slight delay to avoid overwhelming the resource server
                 # TODO: Is there a better way to do this so as to not overwhelm the resource server?
@@ -320,119 +328,115 @@ class LiconicRestNode(RestNode):
             return ActionFailed(errors="Error stopping shaker, invalid shaker id.")
         return None
 
-    # @action(name="load_plate", description="Load a plate into the incubator")
-    # def load_plate(
-    #     self,
-    #     plate_type: Annotated[
-    #         str, "plate type (flat_bottom_96well, deep_96well, etc.)"
-    #     ],
-    #     plate_id: Annotated[Optional[str], "plate id"] = None,
-    #     stack: Annotated[
-    #         Optional[int], "stack number (1-4), must also specify slot"
-    #     ] = None,
-    #     slot: Annotated[
-    #         Optional[int],
-    #         "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4, must also specify stack)",
-    #     ] = None,
-    # ) -> None:
-    #     """Load a plate into the incubator"""
+    @action(name="load_plate", description="Load a plate into the incubator")
+    def load_plate(
+        self,
+        plate_type: Annotated[
+            str, "plate type (flat_bottom_96well, deep_96well, etc.)"
+        ],
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+        stack: Annotated[
+            Optional[int], "stack number (1-4), must also specify slot"
+        ] = None,
+        slot: Annotated[
+            Optional[int],
+            "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4, must also specify stack)",
+        ] = None,
+    ) -> None:
+        """Load a plate into the incubator"""
 
-    #     # Validate arguments with pydantic model
-    #     try:
-    #         self.logger.info(
-    #             f"Resource tracker before LoadPlateModel: {self.module_inventory}, type {type(self.module_inventory)}"
-    #         )
-    #         LoadPlateModel(
-    #             plate_type=plate_type,
-    #             plate_id=plate_id,
-    #             stack=stack,
-    #             slot=slot,
-    #             resource_tracker=self.module_inventory,
-    #         )
-    #     except Exception as err:
-    #         # Don't put device into error state if argument validation fails, just fail action
-    #         self.logger.log_error(f"Error validating load_plate arguments: {err}")
-    #         return ActionFailed(errors=str(err))
+        # Validate arguments with pydantic model
+        try:
+            LoadPlateModel(
+                plate_type=plate_type,
+                plate_id=plate_id,
+                stack=stack,
+                slot=slot,
+                resource_tracker=self.inventory_handler,
+            )
+        except Exception as err:
+            # Don't put device into error state if argument validation fails, just fail action
+            self.logger.log_error(f"Error validating load_plate arguments: {err}")
+            return ActionFailed(errors=str(err))
 
-    #     # Find next free slot if none specified
-    #     if stack is None and slot is None:
-    #         stack, slot = self.module_inventory.get_next_free_slot(
-    #             plate_type=plate_type
-    #         )
+        # Find next free slot if none specified
+        if stack is None and slot is None:
+            stack, slot = self.inventory_handler.get_next_free_slot(
+                plate_type=plate_type
+            )
 
-    #     # 5. Check if there's a plate in the transfer station
-    #     if self.liconic_interface.read_transfer_station_detector() == 0:
-    #         self.logger.log_error(
-    #             "Load_plate command cannot be completed, no plate in transfer station."
-    #         )
-    #         return ActionFailed(
-    #             "Load_plate command cannot be completed, no plate in transfer station"
-    #         )
+        # Check if there's a plate in the transfer station
+        if self.liconic_interface.read_transfer_station_detector() == 0:
+            self.logger.log_error(
+                "Load_plate command cannot be completed, no plate in transfer station."
+            )
+            return ActionFailed(
+                "Load_plate command cannot be completed, no plate in transfer station"
+            )
 
-    #     # Load the plate
-    #     self.liconic_interface.load_plate(stack=stack, slot=slot)
-    #     while self.liconic_interface.is_busy:
-    #         time.sleep(1)
-    #     self.module_inventory.add_plate(
-    #         plate_id=plate_id,
-    #         stack=stack,
-    #         slot=slot,
-    #         plate_type=plate_type,
-    #     )
-    #     self.logger.log_info(f"Plate loaded into LiCONiC stack {stack}, slot {slot}")
-    #     return None
+        # Load the plate
+        self.liconic_interface.load_plate(stack=stack, slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
+        self.inventory_handler.add_plate(
+            plate_id=plate_id,
+            stack=stack,
+            slot=slot,
+            plate_type=plate_type,
+        )
+        self.logger.log_info(f"Plate loaded into LiCONiC stack {stack}, slot {slot}")
+        return None
 
-    # @action(name="unload_plate", description="Unload a plate from the incubator")
-    # def unload_plate(
-    #     self,
-    #     plate_id: Annotated[Optional[str], "plate id"] = None,
-    #     stack: Annotated[Optional[int], "stacker number (1-4)"] = None,
-    #     slot: Annotated[
-    #         Optional[int],
-    #         "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4)",
-    #     ] = None,
-    # ) -> None:
-    #     """Unload a plate from the incubator"""
 
-    #     # Validate arguments with pydantic model
-    #     self.logger.info(
-    #         f"Unload plate arguments before validation: plate_id={plate_id}, stack={stack}, slot={slot}"
-    #     )
-    #     try:
-    #         self.logger.info(
-    #             f"Resource tracker before LoadPlateModel: {self.module_inventory}, type {type(self.module_inventory)}"
-    #         )
-    #         model = UnloadPlateModel(
-    #             plate_id=plate_id,
-    #             stack=stack,
-    #             slot=slot,
-    #             resource_tracker=self.module_inventory,
-    #         )
-    #         # Extract validated values
-    #         plate_id = model.plate_id
-    #         stack = model.stack
-    #         slot = model.slot
-    #     except Exception as err:
-    #         # Don't put device into error state if argument validation fails, just fail action
-    #         self.logger.log_error(f"Error validating unload_plate arguments: {err}")
-    #         return ActionFailed(errors=str(err))
 
-    #     # Ensure transfer station is clear
-    #     if self.liconic_interface.read_transfer_station_detector() == 1:
-    #         self.logger.log_error(
-    #             "Transfer station occupied, please clear it before unloading."
-    #         )
-    #         return ActionFailed(
-    #             errors="Transfer station occupied, please clear it before unloading."
-    #         )
+    @action(name="unload_plate", description="Unload a plate from the incubator")
+    def unload_plate(
+        self,
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+        stack: Annotated[Optional[int], "stacker number (1-4)"] = None,
+        slot: Annotated[
+            Optional[int],
+            "slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4)",
+        ] = None,
+    ) -> None:
+        """Unload a plate from the incubator"""
 
-    #     # Unload the plate
-    #     self.liconic_interface.unload_plate(stack=stack, slot=slot)
-    #     while self.liconic_interface.is_busy:
-    #         time.sleep(1)
-    #     self.module_inventory.remove_plate(stack=stack, slot=slot)
-    #     self.logger.info(f"Plate unloaded from LiCONiC stack {stack}, slot {slot}")
-    #     return None
+        # Validate arguments with pydantic model
+        self.logger.info(
+            f"Unload plate arguments before validation: plate_id={plate_id}, stack={stack}, slot={slot}"
+        )
+        try:
+            model = UnloadPlateModel(
+                plate_id=plate_id,
+                stack=stack,
+                slot=slot,
+                resource_tracker=self.inventory_handler,
+            )
+            # Extract validated values
+            plate_id = model.plate_id
+            stack = model.stack
+            slot = model.slot
+        except Exception as err:
+            # Don't put device into error state if argument validation fails, just fail action
+            self.logger.log_error(f"Error validating unload_plate arguments: {err}")
+            return ActionFailed(errors=str(err))
+
+        # Ensure transfer station is clear
+        if self.liconic_interface.read_transfer_station_detector() == 1:
+            self.logger.log_error(
+                "Transfer station occupied, please clear it before unloading."
+            )
+            return ActionFailed(
+                errors="Transfer station occupied, please clear it before unloading."
+            )
+
+        # Unload the plate
+        self.liconic_interface.unload_plate(stack=stack, slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
+        self.inventory_handler.remove_plate(stack=stack, slot=slot)
+        self.logger.info(f"Plate unloaded from LiCONiC stack {stack}, slot {slot}")
+        return None
 
 
 if __name__ == "__main__":

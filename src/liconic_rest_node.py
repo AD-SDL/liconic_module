@@ -8,6 +8,7 @@ from madsci.common.types.action_types import ActionFailed
 from madsci.common.types.node_types import RestNodeConfig
 from madsci.common.types.resource_types import (
     Slot,
+    Container,
 )
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
@@ -93,6 +94,8 @@ class LiconicRestNode(RestNode):
             description="Template of a liconic conveyor nest",
             tags=["PlateNest", "ANSI/SLAS"],
         )
+
+        # microplate slot template
         self.resource_client.create_template(
             resource=Slot(
                 resource_description="Microplate nest template for inside LiCONiC incubator",
@@ -101,13 +104,51 @@ class LiconicRestNode(RestNode):
             description="Template of a liconic microplate nest",
             tags=["PlateNest", "ANSI/SLAS", "microplate"],
         )
+
+        # deep well slot template
         self.resource_client.create_template(
             resource=Slot(
-                resource_description="Deepwell nest template for inside LiCONiC incubator",
+                resource_description="Deep well nest template for inside LiCONiC incubator",
             ),
             template_name="liconic_deepwell.nest",
             description="Template of a liconic deepwell nest",
             tags=["PlateNest", "ANSI/SLAS", "deepwell", "microplate"],
+        )
+
+        # template for the entire liconic container
+        self.resource_client.create_template(
+            resource = Container(
+                resource_description="Container for all LiCONiC incubator contents",
+                capacity=4,  # can hold 4 stacks of any type
+            ),
+            template_name = "liconic_contents_container",
+            description="Template for all incubator contents"
+        )
+
+        # microplate stack template
+        self.resource_client.create_template(
+            resource=Container(
+                resource_description="Microplate stack resource. Holds up to 22 microplates.",
+                capacity=22,
+                attributes={
+                    "stack_type": "microplate",
+                }
+            ),
+            template_name = "microplate_stack_template",
+            description="Microplate stack template for the LiCONiC incubator.",
+        )
+
+        # deep well stack template
+        self.resource_client.create_template(
+            resource=Container(
+                resource_description="Deep well stack resource. Holds up to 10 deep well plates.",
+                capacity=10,
+                attributes={
+                    "stack_type": "deep_well",
+                }
+            ),
+            template_name = "deep_well_stack_template",
+            description="Deep well stack template for the LiCONiC incubator.",
         )
 
     def create_resources(self) -> None:
@@ -119,16 +160,60 @@ class LiconicRestNode(RestNode):
             resource_name=f"{self.node_definition.node_name}_conveyor.nest",
         )
 
+        # create container resource for all liconic contents
+        self.liconic_container = self.resource_client.create_resource_from_template(
+            template_name="liconic_contents_container",
+            resource_name = "liconic_incubator"
+        )
+
         # create stack and slot nest resources inside the incubator
         for stack in self.inventory_handler.stacks_dict:
-            template_name = "liconic_deepwell.nest" if self.inventory_handler.stacks_dict[stack] == 10 else "liconic_microplate.nest"
-            for i in range(self.inventory_handler.stacks_dict[stack]):
-                self.resource_client.create_resource_from_template(
-                    template_name=template_name,
-                    resource_name=f"{self.node_definition.node_name}_stack{stack}_slot{i+1}.nest",
+            num_stack_nests = self.inventory_handler.stacks_dict[stack]
+            stack_template_name = "deep_well_stack_template" if num_stack_nests == 10 else "microplate_stack_template"
+            nest_type = "deep_well" if num_stack_nests == 10 else "microplate"
+
+            print()  # TESTING
+            print(f"STACK{stack}")   # TESTING
+            current_stack = self.resource_client.create_resource_from_template(
+                template_name=stack_template_name,
+                resource_name=f"stack{stack}",
+            )
+            self.resource_client.set_child(
+                resource=self.liconic_container,
+                child=current_stack,
+                key=stack-1,
+            )
+
+            for i in range(num_stack_nests):
+                print(f"slot{i+1}")  # TESTING
+                self.resource_client.set_child(
+                    resource = current_stack,
+                    child = Slot(
+                        resource_name=f"slot{i+1}",
+                        resource_description=f"stack{stack}_slot{i+1} nest resource in LiCONiC incubator",
+                        attributes={
+                            "slot_type": nest_type
+                        }
+                    ),
+                    key = i
                 )
-                time.sleep(0.02) # slight delay to avoid overwhelming the resource server
-                # TODO: Is there a better way to do this so as to not overwhelm the resource server?
+                time.sleep(0.02)  # worst of all possible options
+                # could turn off rate limiting for the resource manager.
+
+
+            # THIS IS THE MOVE!
+                # Case 1: there's no existing implementation (new node construct based on xml)
+                    # create resource after initializing all resources
+
+                # Case 2: Already exists
+                    # Get the existing version and make changes to it.
+                    # query the whole thing
+                    # make changes locally
+                    # push all back up with update
+
+                # NOTE: You can treat the resource items as python objects
+                    # parent.children.append()
+                    # parent.child[0] = the child... etc.
 
     def state_handler(self) -> None:
         """Periodically called to update the current state of the node."""

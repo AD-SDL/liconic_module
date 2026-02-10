@@ -83,7 +83,7 @@ class InventoryHandler:
     def __init__(
         self,
         cassette_config_path: Union[Path, str],
-        module_inventory_file_path: Optional[Union[Path, str]] = None,
+        # module_inventory_file_path: Optional[Union[Path, str]] = None,
         resource_client: Optional[ResourceClient] = None,
         node_name: Optional[str] = None,
     ) -> None:
@@ -99,24 +99,24 @@ class InventoryHandler:
         # parse the cassette config to determine stack sizes
         self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
 
-        # Set up the inventory file path
-        if not module_inventory_file_path:
-            self.inventory_path = (
-                Path.home() / ".madsci" / "liconic" / "liconic_inventory.yaml"
-            )
-        else:
-            self.inventory_path = Path(module_inventory_file_path)
+        # # Set up the inventory file path
+        # if not module_inventory_file_path:
+        #     self.inventory_path = (
+        #         Path.home() / ".madsci" / "liconic" / "liconic_inventory.yaml"
+        #     )
+        # else:
+        #     self.inventory_path = Path(module_inventory_file_path)
 
-        # Load existing or create new inventory file
-        if self.inventory_path.exists():
-            self.inventory = InventoryFile.from_yaml(self.inventory_path)
-        else:
-            # create the file
-            self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
+        # # Load existing or create new inventory file
+        # if self.inventory_path.exists():
+        #     self.inventory = InventoryFile.from_yaml(self.inventory_path)
+        # else:
+        #     # create the file
+        #     self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # populate inventory file with empty stacks/slots
-            self.inventory = InventoryFile(cassette_stacks=self.stacks_dict)
-            self.update_inventory_file()
+        #     # populate inventory file with empty stacks/slots
+        #     self.inventory = InventoryFile(cassette_stacks=self.stacks_dict)
+        #     self.update_inventory_file()
 
 
     def add_plate(

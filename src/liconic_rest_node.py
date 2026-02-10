@@ -53,7 +53,7 @@ class LiconicRestNode(RestNode):
         # set up internal inventory handler (PARSES CASSETTE CONFIG AND LOADS/CREATES INVENTORY FILE)
         self.inventory_handler = InventoryHandler(
             self.config.cassette_config_path,
-            self.config.module_inventory_file_path,
+            # self.config.module_inventory_file_path,
             self.resource_client,
             self.node_definition.node_name,
             )
@@ -95,62 +95,6 @@ class LiconicRestNode(RestNode):
             tags=["PlateNest", "ANSI/SLAS"],
         )
 
-        # microplate slot template
-        self.resource_client.create_template(
-            resource=Slot(
-                resource_description="Microplate nest template for inside LiCONiC incubator",
-            ),
-            template_name="liconic_microplate.nest",
-            description="Template of a liconic microplate nest",
-            tags=["PlateNest", "ANSI/SLAS", "microplate"],
-        )
-
-        # deep well slot template
-        self.resource_client.create_template(
-            resource=Slot(
-                resource_description="Deep well nest template for inside LiCONiC incubator",
-            ),
-            template_name="liconic_deepwell.nest",
-            description="Template of a liconic deepwell nest",
-            tags=["PlateNest", "ANSI/SLAS", "deepwell", "microplate"],
-        )
-
-        # template for the entire liconic container
-        self.resource_client.create_template(
-            resource = Container(
-                resource_description="Container for all LiCONiC incubator contents",
-                capacity=4,  # can hold 4 stacks of any type
-            ),
-            template_name = "liconic_contents_container",
-            description="Template for all incubator contents"
-        )
-
-        # microplate stack template
-        self.resource_client.create_template(
-            resource=Container(
-                resource_description="Microplate stack resource. Holds up to 22 microplates.",
-                capacity=22,
-                attributes={
-                    "stack_type": "microplate",
-                }
-            ),
-            template_name = "microplate_stack_template",
-            description="Microplate stack template for the LiCONiC incubator.",
-        )
-
-        # deep well stack template
-        self.resource_client.create_template(
-            resource=Container(
-                resource_description="Deep well stack resource. Holds up to 10 deep well plates.",
-                capacity=10,
-                attributes={
-                    "stack_type": "deep_well",
-                }
-            ),
-            template_name = "deep_well_stack_template",
-            description="Deep well stack template for the LiCONiC incubator.",
-        )
-
     def create_resources(self) -> None:
         """Create resources for the node module."""
 
@@ -160,47 +104,89 @@ class LiconicRestNode(RestNode):
             resource_name=f"{self.node_definition.node_name}_conveyor.nest",
         )
 
-        # create container resource for all liconic contents
-        self.liconic_container = self.resource_client.create_resource_from_template(
-            template_name="liconic_contents_container",
-            resource_name = "liconic_incubator"
-        )
+        # TODO: make the liconic conveyor slot a child resource of the liconic container?
+        # Check to see if liconic container already exists
+        liconic_container_resource_name = f"{self.node_definition.node_name}.container"
+        existing_resource = None
+        try:
+            existing_resource = self.resource_client.query_resource(resource_name=liconic_container_resource_name)
+        except Exception as e:
+            self.logger.log_warning("No existing liconic resource was found. A new LiCONiC container resource will be created. ")
+            self.logger.log_debug(f"No existing liconic container resource was found. Error={e}")
 
-        # create stack and slot nest resources inside the incubator
-        for stack in self.inventory_handler.stacks_dict:
-            num_stack_nests = self.inventory_handler.stacks_dict[stack]
-            stack_template_name = "deep_well_stack_template" if num_stack_nests == 10 else "microplate_stack_template"
-            nest_type = "deep_well" if num_stack_nests == 10 else "microplate"
+        if existing_resource is None:
+            # Create a new LiCONiC incubator container resource.
 
-            print()  # TESTING
-            print(f"STACK{stack}")   # TESTING
-            current_stack = self.resource_client.create_resource_from_template(
-                template_name=stack_template_name,
-                resource_name=f"stack{stack}",
-            )
-            self.resource_client.set_child(
-                resource=self.liconic_container,
-                child=current_stack,
-                key=stack-1,
+            # Create the liconic container.
+            liconic_container = Container(
+                resource_name = liconic_container_resource_name,
+                resource_description="Container for all LiCONiC incubator contents.",
+                capacity=4,
             )
 
-            for i in range(num_stack_nests):
-                print(f"slot{i+1}")  # TESTING
-                self.resource_client.set_child(
-                    resource = current_stack,
-                    child = Slot(
-                        resource_name=f"slot{i+1}",
+            # Create stack and slot nest resources inside the incubator.
+            all_stacks = {}
+            for stack in self.inventory_handler.stacks_dict:
+                num_stack_nests = self.inventory_handler.stacks_dict[stack]
+                if num_stack_nests not in [10,22]:
+                    raise ValueError("CassetteConfig.xml configuration is not supported. Stacks must be type microplate (22 slots) or type deep well (10 slots).")
+                stack_type = "Deep well" if num_stack_nests == 10 else "Microplate"  # formatted for print descriptions
+                nest_type = "deep_well" if num_stack_nests == 10 else "microplate"
+
+                # Create the current stack resource container.
+                current_stack = Container(
+                    resource_name=f"stack{stack}",
+                    resource_description=f"{stack_type} stack resource. Contains {num_stack_nests} slot locations.",
+                    capacity=num_stack_nests,
+                    attributes={
+                        "stack_type": nest_type
+                    }
+                )
+
+                # Create all the slot resources for the current stack.
+                all_slots_in_current_stack = {}
+                for i in range(num_stack_nests):
+                    current_slot = Slot(
+                        resource_name = f"slot{i+1}",
                         resource_description=f"stack{stack}_slot{i+1} nest resource in LiCONiC incubator",
                         attributes={
                             "slot_type": nest_type
                         }
-                    ),
-                    key = i
-                )
-                time.sleep(0.02)  # worst of all possible options
-                # could turn off rate limiting for the resource manager.
+                    )
+                    all_slots_in_current_stack[str(i+1)] = current_slot
+                current_stack.populate_children(all_slots_in_current_stack)
 
+                # Add current stack to all stacks dictionary.
+                all_stacks[str(stack)] = current_stack
 
+            # Add all stacks to the liconic container as children.
+            liconic_container.populate_children(all_stacks)
+
+            # Register the liconic container with the Resource Manager
+            self.liconic_container_resource = self.resource_client.add_resource(
+                resource=liconic_container
+            )
+
+        else:
+            # There is an existing LiCONiC container resource.
+            self.logger.log_info(f"Existing {liconic_container_resource_name} resource found.")
+
+            """Check that the stack/slot configuration of the existing resource matches
+            that in the CassetteConfig.xml"""
+            configuration_is_matching = True
+            for stack in self.inventory_handler.stacks_dict:
+                num_slots_in_config = self.inventory_handler.stacks_dict[stack]
+                num_slots_in_existing_resource = existing_resource.children[str(stack)].capacity
+                if int(num_slots_in_config) != int(num_slots_in_existing_resource):
+                    configuration_is_matching = False
+
+            if configuration_is_matching is True: # MATCHING
+                self.logger.info(f"Existing {liconic_container_resource_name} resource stack configuration matches configuration of CassetteConfig.xml.")
+            else:  # NOT MATCHING
+                self.logger.log_error(f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource.")
+                raise Exception(f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource.")
+
+        # NOTES FROM CHAT WITH RYAN
             # THIS IS THE MOVE!
                 # Case 1: there's no existing implementation (new node construct based on xml)
                     # create resource after initializing all resources

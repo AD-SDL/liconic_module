@@ -25,6 +25,7 @@ from liconic_interface.pydantic_models import (
 )
 
 
+
 class LiconicNodeConfig(RestNodeConfig):
     """Configuration for the LiCONiC REST node"""
 
@@ -53,7 +54,6 @@ class LiconicRestNode(RestNode):
         # set up internal inventory handler (PARSES CASSETTE CONFIG AND LOADS/CREATES INVENTORY FILE)
         self.inventory_handler = InventoryHandler(
             self.config.cassette_config_path,
-            # self.config.module_inventory_file_path,
             self.resource_client,
             self.node_definition.node_name,
             )
@@ -103,6 +103,8 @@ class LiconicRestNode(RestNode):
             template_name="liconic_conveyor.nest",
             resource_name=f"{self.node_definition.node_name}_conveyor.nest",
         )
+
+        self.liconic_container_resource_id = None
 
         # TODO: make the liconic conveyor slot a child resource of the liconic container?
         # Check to see if liconic container already exists
@@ -166,6 +168,7 @@ class LiconicRestNode(RestNode):
             self.liconic_container_resource = self.resource_client.add_resource(
                 resource=liconic_container
             )
+            self.liconic_container_resource_id = self.liconic_container_resource.resource_id
 
         else:
             # There is an existing LiCONiC container resource.
@@ -182,6 +185,8 @@ class LiconicRestNode(RestNode):
 
             if configuration_is_matching is True: # MATCHING
                 self.logger.info(f"Existing {liconic_container_resource_name} resource stack configuration matches configuration of CassetteConfig.xml.")
+                self.liconic_container_resource = existing_resource
+                self.liconic_container_resource_id = existing_resource.resource_id
             else:  # NOT MATCHING
                 self.logger.log_error(f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource.")
                 raise Exception(f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource.")
@@ -418,6 +423,7 @@ class LiconicRestNode(RestNode):
 
         # Validate arguments with pydantic model
         try:
+            # TODO: convert pydantic model checks to use rezource handler, not inventory handler!
             LoadPlateModel(
                 plate_type=plate_type,
                 plate_id=plate_id,
@@ -430,10 +436,14 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(f"Error validating load_plate arguments: {err}")
             return ActionFailed(errors=str(err))
 
+        # Collect current liconic container resource
+        liconic_resource = self.resource_client.get_resource(self.liconic_container_resource_id)
+
         # Find next free slot if none specified
         if stack is None and slot is None:
             stack, slot = self.inventory_handler.get_next_free_slot(
-                plate_type=plate_type
+                plate_type=plate_type,
+                resource=liconic_resource
             )
 
         # Check if there's a plate in the transfer station
@@ -441,20 +451,30 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(
                 "Load_plate command cannot be completed, no plate in transfer station."
             )
-            return ActionFailed(
-                "Load_plate command cannot be completed, no plate in transfer station"
-            )
+            # return ActionFailed(
+            #     "Load_plate command cannot be completed, no plate in transfer station"
+            # )
+        else: # there is a plate in the transfer location
+            plate_resource = self.resource_client.get_resource(self.plate_carrier).child
 
-        # Load the plate
-        self.liconic_interface.load_plate(stack=stack, slot=slot)
-        while self.liconic_interface.is_busy:
-            time.sleep(1)
-        self.inventory_handler.add_plate(
-            plate_id=plate_id,
-            stack=stack,
-            slot=slot,
-            plate_type=plate_type,
+        # # Load the plate
+        # self.liconic_interface.load_plate(stack=stack, slot=slot)
+        # while self.liconic_interface.is_busy:
+        #     time.sleep(1)
+
+        # Set plate resource as child to slot resource
+        # TODO: START HERE TOMORROW - add this method to the inventory handler
+        self.inventory_handler.load_plate_into_slot(
+            plate_resource = plate_resource,
+            stack = stack,
+            slot = slot,
         )
+        # self.inventory_handler.add_plate(
+        #     plate_id=plate_id,
+        #     stack=stack,
+        #     slot=slot,
+        #     plate_type=plate_type,
+        # )
         self.logger.log_info(f"Plate loaded into LiCONiC stack {stack}, slot {slot}")
         return None
 

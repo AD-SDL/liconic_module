@@ -11,6 +11,7 @@ from madsci.common.types.resource_types import Resource
 from pydantic import Field
 
 from liconic_interface.labware_definitions import plate_definitions
+from madsci.common.types.resource_types import Resource
 
 
 class Slot(BaseModel):
@@ -45,36 +46,36 @@ class Stack(BaseModel):
         del self.slots[key]
 
 
-class InventoryFile(BaseModel):
-    """Defines the structure of the inventory file"""
-    cassette_stacks: dict[int, int] = Field(
-        default_factory=dict,
-        exclude=True,
-        repr=False,
-    )
-    stacks: dict[int, Stack] = Field(default_factory=dict)
+# class InventoryFile(BaseModel):
+#     """Defines the structure of the inventory file"""
+#     cassette_stacks: dict[int, int] = Field(
+#         default_factory=dict,
+#         exclude=True,
+#         repr=False,
+#     )
+#     stacks: dict[int, Stack] = Field(default_factory=dict)
 
-    def model_post_init(self, __context: Any) -> None:
-        """Initializes the stacks based on cassette_stacks"""
-        if self.stacks:
-            return
+#     def model_post_init(self, __context: Any) -> None:
+#         """Initializes the stacks based on cassette_stacks"""
+#         if self.stacks:
+#             return
 
-        self.stacks = {
-            stack_id: Stack(num_slots=levels)
-            for stack_id, levels in self.cassette_stacks.items()
-        }
+#         self.stacks = {
+#             stack_id: Stack(num_slots=levels)
+#             for stack_id, levels in self.cassette_stacks.items()
+#         }
 
-    def __getitem__(self, item: int) -> Stack:
-        """Get a stack in the inventory file"""
-        return self.stacks[item]
+#     def __getitem__(self, item: int) -> Stack:
+#         """Get a stack in the inventory file"""
+#         return self.stacks[item]
 
-    def __setitem__(self, key: int, value: Stack) -> None:
-        """Set a stack in the inventory file"""
-        self.stacks[key] = value
+#     def __setitem__(self, key: int, value: Stack) -> None:
+#         """Set a stack in the inventory file"""
+#         self.stacks[key] = value
 
-    def __delitem__(self, key: int) -> None:
-        """Delete a stack in the inventory file"""
-        del self.stacks[key]
+#     def __delitem__(self, key: int) -> None:
+#         """Delete a stack in the inventory file"""
+#         del self.stacks[key]
 
 
 class InventoryHandler:
@@ -83,7 +84,6 @@ class InventoryHandler:
     def __init__(
         self,
         cassette_config_path: Union[Path, str],
-        # module_inventory_file_path: Optional[Union[Path, str]] = None,
         resource_client: Optional[ResourceClient] = None,
         node_name: Optional[str] = None,
     ) -> None:
@@ -144,7 +144,7 @@ class InventoryHandler:
 
         """
         # Validations if function is called directly
-        if not self.is_valid_plate_type(plate_type):
+        if not self.is_valid_plate_type(plate_type):  # SHOULD STILL WORK
             raise ValueError(f"Unsupported plate type: {plate_type}")
         if stack not in self.find_valid_stack(plate_type):
             raise ValueError(f"Invalid stack {stack} for plate type {plate_type}")
@@ -232,7 +232,11 @@ class InventoryHandler:
                     return stack_key, slot_key
         raise ValueError("Plate not found")
 
-    def get_next_free_slot(self, plate_type: str) -> tuple[int, int]:
+    def get_next_free_slot(
+        self,
+        plate_type: str,
+        resource: Resource,
+    ) -> tuple[int, int]:
         """
         If no stack and shelf is passed into add_plate, return the next free location
 
@@ -248,41 +252,43 @@ class InventoryHandler:
            - stacks will alternate between 1 and 2 (or 3 and 4) to balance shakers
         """
 
-        candidate_stacks = self.find_valid_stack(plate_type)
+        candidate_stacks = self.find_valid_stack(
+            plate_type = plate_type,
+            resource = resource,
+        )
+
         if candidate_stacks:
             # Get occupancy count for each stack in the group
             stack_occupancy = {}
-            for stack_id in candidate_stacks:
-                stack = self.inventory.stacks[(stack_id)]
-                occupied_count = sum(
-                    1 for slot in stack.slots.values() if slot.occupied
-                )
-                stack_occupancy[stack_id] = occupied_count
+
+            any_free_slot = False
+            for stack_num in candidate_stacks:
+                stack_resource = resource.children[str(stack_num)]
+                occupancy_count = 0
+                first_free_slot = None
+                for slot_num in stack_resource.children:
+                    slot_resource = stack_resource.children[slot_num]
+                    occupied = True if len(slot_resource.children) == 1 else 0
+                    if occupied:
+                        occupancy_count += 1
+                    else:
+                        if first_free_slot is None:
+                            first_free_slot = slot_num
+                            any_free_slot = True
+
+                stack_occupancy[stack_num] = (occupancy_count, first_free_slot)
+
+            # Raise exception if there are no compatible slots available
+            if any_free_slot is False:
+                raise Exception(f"No free slots available for plate type '{plate_type}'")
 
             # Pick the stack with fewer occupied slots (to balance load)
             # If tied, pick the lower-numbered stack
-            stack_to_use = min(stack_occupancy, key=lambda s: (stack_occupancy[s], s))
+            stack_to_use = min(stack_occupancy, key=lambda s: (stack_occupancy[s][0], s))
+            slot_to_use = int(stack_occupancy[stack_to_use][1])
 
-            # Find the lowest-numbered free slot in that stack
-            for slot_id_str, slot in sorted(
-                self.inventory.stacks[(stack_to_use)].slots.items(),
-                key=lambda x: int(x[0]),
-            ):
-                if not slot.occupied:
-                    return stack_to_use, int(slot_id_str)
+            return stack_to_use, slot_to_use
 
-            # If the chosen stack is full, try the other one
-            for alt_stack_id in candidate_stacks:
-                if alt_stack_id == stack_to_use:
-                    continue
-                for slot_id_str, slot in sorted(
-                    self.inventory.stacks[str(alt_stack_id)].slots.items(),
-                    key=lambda x: int(x[0]),
-                ):
-                    if not slot.occupied:
-                        return alt_stack_id, int(slot_id_str)
-
-            raise Exception(f"No free slots available for plate type '{plate_type}'")
         raise Exception(f"No valid stacks found for plate type '{plate_type}'")
 
     def is_location_occupied(self, stack: int, slot: int) -> bool:
@@ -318,7 +324,11 @@ class InventoryHandler:
         """
         self.inventory.to_yaml(self.inventory_path)
 
-    def find_valid_stack(self, plate_type: str) -> list[int]:
+    def find_valid_stack(
+        self,
+        plate_type: str,
+        resource: Resource
+    ) -> list[int]:
         """
         Returns a list of valid stacks for the given plate type
 
@@ -331,10 +341,15 @@ class InventoryHandler:
         valid_stacks = []
         if plate_type not in self.labware_definitions:
             raise ValueError(f"Unsupported plate type: {plate_type}")
+        attribute_to_search = ""
         if plate_type == "flat_bottom_96well":
-            valid_stacks = [1, 2]
-        if plate_type == "deep_96well":
-            valid_stacks = [3, 4]
+            attribute_to_search = "microplate"
+        elif plate_type == "deep_96well":
+            attribute_to_search = "deep_well"
+
+        for child in resource.children:
+            if resource.children[child].attributes["stack_type"] == attribute_to_search:
+                valid_stacks.append(int(child))
         return valid_stacks
 
     def is_valid_plate_type(self, plate_type: str) -> bool:

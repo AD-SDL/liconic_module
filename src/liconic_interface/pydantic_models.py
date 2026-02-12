@@ -4,6 +4,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from madsci.common.types.resource_types import Container
+
 
 class LoadPlateModel(BaseModel):
     """Model for loading a plate into the LiCONiC incubator"""
@@ -13,6 +15,7 @@ class LoadPlateModel(BaseModel):
     stack: Optional[int] = None
     slot: Optional[int] = None
     resource_tracker: Any = None
+    current_liconic_resource: Container = None
 
     def __init__(self, **data: Any) -> None:
         """Initializes the load plate model"""
@@ -43,27 +46,42 @@ class LoadPlateModel(BaseModel):
         if self.stack and self.slot:
             # 3a. Check that the stack is valid for the specified plate type
             valid_stacks = self.resource_tracker.find_valid_stack(
-                plate_type=self.plate_type
+                plate_type=self.plate_type,
+                resource = self.current_liconic_resource,
             )
             if self.stack not in valid_stacks:
                 raise ValueError(
                     f"Stack {self.stack} not valid for plate type {self.plate_type}"
                 )
             # 3b. Check that the stack/slot combination is valid
-            if not self.resource_tracker.is_valid_stack_slot(self.stack, self.slot):
+            if not self.resource_tracker.is_valid_stack_slot(
+                self.stack,
+                self.slot,
+                self.current_liconic_resource,
+            ):
                 raise ValueError(
                     f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
                 )
             # 3c. Check that the location is not already occupied
-            if self.resource_tracker.is_location_occupied(self.stack, self.slot):
+            print("CHECKING LOCATION OCCUPIED")
+            if self.resource_tracker.is_location_occupied(
+                self.stack,
+                self.slot,
+                self.current_liconic_resource
+            ):
                 raise ValueError(
                     f"Location stack {self.stack}, slot {self.slot} already occupied."
                 )
 
         # 4. Prevent duplicate plate ids
+        print("PREVENTING DUPLICATE PLATE IDS")
+        # TODO: TEST THIS WHEN A PLATE IS LOADED THAT HAS A PLATE ID
         if self.plate_id and str(self.plate_id).lower() != "none":
             try:
-                self.resource_tracker.find_plate(self.plate_id)
+                self.resource_tracker.find_plate(
+                    self.plate_id,
+                    self.current_liconic_resource,
+                )
             except ValueError:
                 # if we get a ValueError, then no existing plate with the same ID was found
                 return self

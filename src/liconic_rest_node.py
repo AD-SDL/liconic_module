@@ -95,6 +95,10 @@ class LiconicRestNode(RestNode):
             tags=["PlateNest", "ANSI/SLAS"],
         )
 
+        # TODO: microplate resource template?
+
+        # TODO: deep well plate template?
+
     def create_resources(self) -> None:
         """Create resources for the node module."""
 
@@ -421,23 +425,23 @@ class LiconicRestNode(RestNode):
     ) -> None:
         """Load a plate into the incubator"""
 
+        # Collect current liconic container resource
+        liconic_resource = self.resource_client.get_resource(self.liconic_container_resource_id)
+
         # Validate arguments with pydantic model
         try:
-            # TODO: convert pydantic model checks to use rezource handler, not inventory handler!
             LoadPlateModel(
                 plate_type=plate_type,
                 plate_id=plate_id,
                 stack=stack,
                 slot=slot,
+                current_liconic_resource = liconic_resource,
                 resource_tracker=self.inventory_handler,
             )
         except Exception as err:
             # Don't put device into error state if argument validation fails, just fail action
             self.logger.log_error(f"Error validating load_plate arguments: {err}")
             return ActionFailed(errors=str(err))
-
-        # Collect current liconic container resource
-        liconic_resource = self.resource_client.get_resource(self.liconic_container_resource_id)
 
         # Find next free slot if none specified
         if stack is None and slot is None:
@@ -451,11 +455,30 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(
                 "Load_plate command cannot be completed, no plate in transfer station."
             )
-            # return ActionFailed(
-            #     "Load_plate command cannot be completed, no plate in transfer station"
-            # )
-        else: # there is a plate in the transfer location
+            return ActionFailed(
+                "Load_plate command cannot be completed, no plate in transfer station"
+            )
+        # There is a plate in the transfer location. Collect the plate resource object.
+        try:
             plate_resource = self.resource_client.get_resource(self.plate_carrier).child
+        except Exception as e:
+            self.logger.log_error("There is no plate resource on the conveyor belt to load.")
+            return ActionFailed("There is no plate resource on the conveyor belt to load.")
+
+        # we can assume a plate resource will be there (plate_id might not be listed as an attribute yet)
+        # TODO: add liconic_plate_id attribute to plate resource
+        if plate_id:
+            try:
+                existing_liconic_plate_id = plate_resource.attributes["liconic_plate_id"]
+
+                # compare to entered plate id
+                if plate_id != existing_liconic_plate_id:
+                    self.logger.log_warning(f"Existing liconic_plate_id attribute {existing_liconic_plate_id} does not match user entered plate id {plate_id}.")
+            except Exception as e:
+                self.logger.log_info("plate resource has no existing liconic_plate_id attribute.")
+            # set the plate id attribute
+            plate_resource.attributes["liconic_plate_id"] = plate_id
+            self.resource_client.add_or_update_resource(plate_resource)
 
         # # Load the plate
         # self.liconic_interface.load_plate(stack=stack, slot=slot)
@@ -463,18 +486,14 @@ class LiconicRestNode(RestNode):
         #     time.sleep(1)
 
         # Set plate resource as child to slot resource
-        # TODO: START HERE TOMORROW - add this method to the inventory handler
-        self.inventory_handler.load_plate_into_slot(
-            plate_resource = plate_resource,
-            stack = stack,
-            slot = slot,
+        self.inventory_handler.add_plate(
+            plate_id=plate_id,
+            stack=stack,
+            slot=slot,
+            plate_type=plate_type,
+            plate_resource=plate_resource,
+            current_liconic_resource = liconic_resource,
         )
-        # self.inventory_handler.add_plate(
-        #     plate_id=plate_id,
-        #     stack=stack,
-        #     slot=slot,
-        #     plate_type=plate_type,
-        # )
         self.logger.log_info(f"Plate loaded into LiCONiC stack {stack}, slot {slot}")
         return None
 

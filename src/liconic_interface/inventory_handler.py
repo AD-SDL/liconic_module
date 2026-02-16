@@ -99,26 +99,6 @@ class InventoryHandler:
         # parse the cassette config to determine stack sizes
         self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
 
-        # # Set up the inventory file path
-        # if not module_inventory_file_path:
-        #     self.inventory_path = (
-        #         Path.home() / ".madsci" / "liconic" / "liconic_inventory.yaml"
-        #     )
-        # else:
-        #     self.inventory_path = Path(module_inventory_file_path)
-
-        # # Load existing or create new inventory file
-        # if self.inventory_path.exists():
-        #     self.inventory = InventoryFile.from_yaml(self.inventory_path)
-        # else:
-        #     # create the file
-        #     self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
-
-        #     # populate inventory file with empty stacks/slots
-        #     self.inventory = InventoryFile(cassette_stacks=self.stacks_dict)
-        #     self.update_inventory_file()
-
-
     def add_plate(
         self,
         plate_type: str,
@@ -149,7 +129,7 @@ class InventoryHandler:
             raise ValueError(f"Unsupported plate type: {plate_type}")
         if stack not in self.find_valid_stack(
             plate_type=plate_type,
-            resource=current_liconic_resource
+            current_liconic_resource=current_liconic_resource
         ):
             raise ValueError(f"Invalid stack {stack} for plate type {plate_type}")
         if not self.is_valid_stack_slot(
@@ -178,6 +158,7 @@ class InventoryHandler:
         plate_id: Optional[str] = None,
         stack: Optional[int] = None,
         slot: Optional[int] = None,
+        current_liconic_resource: Resource = None,
     ) -> None:
         """
         Locates and removes the given plate from the inventory file
@@ -186,6 +167,7 @@ class InventoryHandler:
             plate_type (str): type of plate being added
             stack (int): stack number where plate is being added
             slot (int): slot number where plate is being added
+            current_liconic_resource (Resource): Current state of the liconic container resource in MADSci Resource Client.
 
         # TODO: Remove duplicate checks!
         """
@@ -200,23 +182,30 @@ class InventoryHandler:
             )
         # Find plate if only plate_id is given
         if plate_id and (stack is None or slot is None):
-            stack, slot = self.find_plate(plate_id)
-        if not self.inventory[stack][slot].occupied:
-            raise Exception("No plate in location")
-        self.inventory[stack][slot] = Slot()
-        self.update_inventory_file()
+            stack, slot = self.find_plate(
+                plate_id = plate_id,
+                current_liconic_resource=current_liconic_resource
+                )
 
-        # Handle resource client calls
+        # check that there is a plate in that location:
+        if not self.is_location_occupied(
+            stack = stack,
+            slot = slot,
+            current_liconic_resource=current_liconic_resource,
+        ):
+            raise Exception(f"No plate resource in location stack {stack}, slot {slot}")
+        stack_resource = current_liconic_resource.children[str(stack)]
+        slot_resource = stack_resource.children[str(slot)]
+        plate_resource = slot_resource.child
+
+        # Ensure no plate resource already exists on conveyor nest
         # Collect conveyor plate resource, if available.
         conveyor_resource = self.resource_client.query_resource(resource_name=f"{self.node_name}_conveyor.nest")
         if conveyor_resource.child:
             raise Exception("A child resource already exists on the conveyor nest.")
-        # Collect plate resource at stack/slot nest
-        stack_slot_resource_child = self.resource_client.query_resource(resource_name=f"{self.node_name}_stack{stack}_slot{slot}.nest").child
-        if stack_slot_resource_child is None:
-            raise Exception(f"No plate resource exists at {self.node_name}_stack{stack}_slot{slot}.nest to unload.")
-        # Push plate resource onto conveyor resource
-        self.resource_client.push(resource=conveyor_resource, child=stack_slot_resource_child)
+
+        # push plate resource onto conveyor resource
+        self.resource_client.push(resource=conveyor_resource, child=plate_resource)
 
     def find_plate(
         self,
@@ -240,33 +229,17 @@ class InventoryHandler:
             stack_resource = current_liconic_resource.children[stack]
             for slot in stack_resource.children:
                 slot_resource = stack_resource.children[slot]
-                # TESTING
-                print(stack)
-                print(f"\t{slot}")
-                if len(slot_resource.children) == 1:
-                    print("slot occupied")
-                    if slot_resource.children[0].attributes["liconic_plate_id"] == plate_id:
-                        print("MATCHING PLATE ID FOUND!")
+                if (len(slot_resource.children) == 1) and (slot_resource.children[0].attributes["liconic_plate_id"] == plate_id):
                         located_stack = int(stack)
                         located_slot = int(slot)
-                else:
-                    print("slot empty")
         if located_stack and located_slot:
             return (located_stack, located_slot)
         raise ValueError("Plate not found")
 
-
-
-        # for stack_key, stack in self.inventory.stacks.items():
-        #     for slot_key, slot in stack.slots.items():
-        #         if slot.plate_id == plate_id:
-        #             return stack_key, slot_key
-        # raise ValueError("Plate not found")
-
     def get_next_free_slot(
         self,
         plate_type: str,
-        resource: Resource,
+        current_liconic_resource: Resource,
     ) -> tuple[int, int]:
         """
         If no stack and shelf is passed into add_plate, return the next free location
@@ -285,8 +258,10 @@ class InventoryHandler:
 
         candidate_stacks = self.find_valid_stack(
             plate_type = plate_type,
-            resource = resource,
+            current_liconic_resource = current_liconic_resource,
         )
+        # TESTING
+        print(f"candiadate stacks: {candidate_stacks}")
 
         if candidate_stacks:
             # Get occupancy count for each stack in the group
@@ -294,20 +269,29 @@ class InventoryHandler:
 
             any_free_slot = False
             for stack_num in candidate_stacks:
-                stack_resource = resource.children[str(stack_num)]
+                print(f"{stack_num=}")
+                stack_resource = current_liconic_resource.children[str(stack_num)]
+                capacity = stack_resource.capacity
+                print(f"{capacity=}")
                 occupancy_count = 0
                 first_free_slot = None
-                for slot_num in stack_resource.children:
+                #for slot_num in stack_resource.children:
+                for i in range(capacity):
+                    slot_num = str(i+1)
+                    print(f"\t{slot_num=}")
                     slot_resource = stack_resource.children[slot_num]
-                    occupied = True if len(slot_resource.children) == 1 else 0
+                    occupied = len(slot_resource.children) == 1
+                    print(f"\t{occupied=}")
                     if occupied:
                         occupancy_count += 1
-                    else:
-                        if first_free_slot is None:
-                            first_free_slot = slot_num
-                            any_free_slot = True
+                    elif first_free_slot is None:
+                        first_free_slot = slot_num
+                        any_free_slot = True
 
                 stack_occupancy[stack_num] = (occupancy_count, first_free_slot)
+
+            print("STACK OCCUPANCY")
+            print(stack_occupancy)
 
             # Raise exception if there are no compatible slots available
             if any_free_slot is False:
@@ -344,29 +328,10 @@ class InventoryHandler:
         slot_resource = stack_resource.children[str(slot)]
         return len(slot_resource.children) == 1
 
-    def get_plate_id(self, stack: int, slot: int) -> str:
-        """
-        Pull the plate id of the plate located in given stack and slot
-
-        Args:
-            stack (int): stack number in the incubator
-            slot (int): slot number in the stack
-
-        Returns:
-            plate_id of plate at given stack/slot location
-        """
-        return self.inventory[int(stack)][int(slot)]["plate_id"]
-
-    def update_inventory_file(self) -> None:
-        """
-        Updates the external inventory file to match self.inventory
-        """
-        self.inventory.to_yaml(self.inventory_path)
-
     def find_valid_stack(
         self,
         plate_type: str,
-        resource: Resource
+        current_liconic_resource: Resource
     ) -> list[int]:
         """
         Returns a list of valid stacks for the given plate type
@@ -386,8 +351,8 @@ class InventoryHandler:
         elif plate_type == "deep_96well":
             attribute_to_search = "deep_well"
 
-        for child in resource.children:
-            if resource.children[child].attributes["stack_type"] == attribute_to_search:
+        for child in current_liconic_resource.children:
+            if current_liconic_resource.children[child].attributes["stack_type"] == attribute_to_search:
                 valid_stacks.append(int(child))
         return valid_stacks
 
@@ -423,9 +388,6 @@ class InventoryHandler:
             valid = False
         if str(slot) not in current_liconic_resource.children[str(stack)].children:
             valid = False
-
-        # TESTING
-        print(f"STACK/SLOT COMBO IS VALID?: {valid}")
         return valid
 
 

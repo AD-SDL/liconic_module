@@ -447,7 +447,7 @@ class LiconicRestNode(RestNode):
         if stack is None and slot is None:
             stack, slot = self.inventory_handler.get_next_free_slot(
                 plate_type=plate_type,
-                resource=liconic_resource
+                current_liconic_resource=liconic_resource
             )
 
         # Check if there's a plate in the transfer station
@@ -511,6 +511,9 @@ class LiconicRestNode(RestNode):
     ) -> None:
         """Unload a plate from the incubator"""
 
+        # Collect current liconic container resource
+        liconic_resource = self.resource_client.get_resource(self.liconic_container_resource_id)
+
         # Validate arguments with pydantic model
         self.logger.info(
             f"Unload plate arguments before validation: plate_id={plate_id}, stack={stack}, slot={slot}"
@@ -521,6 +524,7 @@ class LiconicRestNode(RestNode):
                 stack=stack,
                 slot=slot,
                 resource_tracker=self.inventory_handler,
+                current_liconic_resource = liconic_resource,
             )
             # Extract validated values
             plate_id = model.plate_id
@@ -531,22 +535,43 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(f"Error validating unload_plate arguments: {err}")
             return ActionFailed(errors=str(err))
 
-        # Ensure transfer station is clear
-        if self.liconic_interface.read_transfer_station_detector() == 1:
-            self.logger.log_error(
-                "Transfer station occupied, please clear it before unloading."
-            )
-            return ActionFailed(
-                errors="Transfer station occupied, please clear it before unloading."
-            )
+        # # Ensure transfer station is clear
+        # if self.liconic_interface.read_transfer_station_detector() == 1:
+        #     self.logger.log_error(
+        #         "Transfer station occupied, please clear it before unloading."
+        #     )
+        #     return ActionFailed(
+        #         errors="Transfer station occupied, please clear it before unloading."
+        #     )
 
-        # Unload the plate
-        self.liconic_interface.unload_plate(stack=stack, slot=slot)
-        while self.liconic_interface.is_busy:
-            time.sleep(1)
-        self.inventory_handler.remove_plate(stack=stack, slot=slot)
+        # # Unload the plate
+        # self.liconic_interface.unload_plate(stack=stack, slot=slot)
+        # while self.liconic_interface.is_busy:
+        #     time.sleep(1)
+
+        # Unload the plate in resource handler
+        self.inventory_handler.remove_plate(
+            stack=stack,
+            slot=slot,
+            current_liconic_resource=liconic_resource
+        )
         self.logger.info(f"Plate unloaded from LiCONiC stack {stack}, slot {slot}")
         return None
+
+    # Actions for use in remote mode
+    @action(
+        name="push_labware_to_conveyor",
+        description="Push a plate resource to the conveyor nest slot resource.",
+    )
+    def push_labware_to_conveyor(
+        self,
+        plate_type: Annotated[
+            str, "plate type (flat_bottom_96well, deep_96well, etc.)"
+        ],
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+    ) -> None:
+        # TODO: start here
+        pass
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from madsci.common.types.node_types import RestNodeConfig
 from madsci.common.types.resource_types import (
     Slot,
     Container,
+    Resource
 )
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
@@ -462,8 +463,8 @@ class LiconicRestNode(RestNode):
         try:
             plate_resource = self.resource_client.get_resource(self.plate_carrier).child
         except Exception as e:
-            self.logger.log_error("There is no plate resource on the conveyor belt to load.")
-            return ActionFailed("There is no plate resource on the conveyor belt to load.")
+            self.logger.log_error(f"There is no plate resource on the conveyor belt to load. {e}")
+            return ActionFailed(f"There is no plate resource on the conveyor belt to load. {e}")
 
         # we can assume a plate resource will be there (plate_id might not be listed as an attribute yet)
         # TODO: add liconic_plate_id attribute to plate resource
@@ -568,11 +569,57 @@ class LiconicRestNode(RestNode):
         plate_type: Annotated[
             str, "plate type (flat_bottom_96well, deep_96well, etc.)"
         ],
-        plate_id: Annotated[Optional[str], "plate id"] = None,
+        plate_name: Annotated[Optional[str], "plate_name"] = None,
+        liconic_plate_id: Annotated[Optional[str], "plate id"] = None,
     ) -> None:
-        # TODO: start here
-        pass
 
+        plate_resource = Resource(
+            resource_name = plate_name if plate_name else f"{plate_type} resource",
+        )
+
+        # Check that plate_type is supported.
+        if plate_type == "flat_bottom_96well":
+            plate_resource.attributes["plate_type"] = "microplate"
+        elif plate_type == "deep_96well":
+            plate_resource.attributes["plate_type"] = "deep_well"
+        else:
+            return ActionFailed(f"{plate_type} is unsupported.")
+
+        # Add plate_id attribute if provided.
+        if liconic_plate_id:
+            plate_resource.attributes["liconic_plate_id"] = liconic_plate_id
+
+        # Check that no plate resource is already on the conveyor belt
+        if self.resource_client.get_resource(self.plate_carrier).child:
+            self.logger.log_error("A plate resource already exists on the LiCONiC conveyor belt nest.")
+            return ActionFailed("A plate resource already exists on the LiCONiC conveyor belt nest.")
+
+        # Push new plate resource onto conveyor belt slot resource
+        self.resource_client.push(
+            resource=self.plate_carrier,
+            child=plate_resource,
+        )
+        return None
+
+    # Actions for use in remote mode
+    @action(
+        name="pop_labware_from_conveyor",
+        description="Pop a plate resource from the conveyor nest slot resource.",
+    )
+    def pop_labware_from_conveyor(self) -> None:
+        """
+        Pops a labware resource from the LiCONiC conveyor nest slot resource.
+        """
+
+        # Check that a plate resource exists on the conveyor nest slot resource.
+        if self.resource_client.get_resource(self.plate_carrier).child:
+            self.resource_client.pop(self.plate_carrier)
+            self.logger.log_info("Popping resource from conveyor nest slot.")
+        else:
+            self.logger.log_error("No plate resource exists in the conveyor nest to pop.")
+            return ActionFailed("No plate resource exists in the conveyor nest to pop.")
+
+        return None
 
 if __name__ == "__main__":
     liconic_module = LiconicRestNode()

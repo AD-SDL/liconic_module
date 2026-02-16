@@ -6,11 +6,7 @@ from typing import Annotated, Optional
 
 from madsci.common.types.action_types import ActionFailed
 from madsci.common.types.node_types import RestNodeConfig
-from madsci.common.types.resource_types import (
-    Slot,
-    Container,
-    Resource
-)
+from madsci.common.types.resource_types import Container, Resource, Slot
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
 
@@ -25,7 +21,10 @@ from liconic_interface.pydantic_models import (
     UnloadPlateModel,
 )
 
-
+"""
+TODOs:
+- should conveyor resource be child of liconic container?
+"""
 
 class LiconicNodeConfig(RestNodeConfig):
     """Configuration for the LiCONiC REST node"""
@@ -38,8 +37,10 @@ class LiconicNodeConfig(RestNodeConfig):
     module_inventory_file_path: Path = Path(
         Path.home() / ".madsci" / "liconic" / "liconic_resources.yaml"
     )
-    node_definition: Path = Path("C:/Users/svcaibio/source/repos/liconic_module/definitions/liconic_lisa.node.yaml")
-    # TODO: why does specifying node_definition path not work from the command line?
+    node_definition: Path = Path(
+        "./definitions/liconic_lisa.node.yaml"
+    )
+
 
 class LiconicRestNode(RestNode):
     """REST-based client for the LiCONiC incubator"""
@@ -50,20 +51,22 @@ class LiconicRestNode(RestNode):
     config_model = LiconicNodeConfig
 
     def startup_handler(self) -> None:
-        """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
+        """(Re)initializes the LiCONiC incubator node. """
 
-        # set up internal inventory handler (PARSES CASSETTE CONFIG AND LOADS/CREATES INVENTORY FILE)
+        # Set up inventory handler. 
+        """This inventory handler handles the majority of the communication with the 
+        MADSci resource client in order to manage the incubator's inventory."""
         self.inventory_handler = InventoryHandler(
             self.config.cassette_config_path,
             self.resource_client,
             self.node_definition.node_name,
-            )
+        )
 
-        # create the resources
+        # Create the resources.
         self.init_resource_templates()
-        self.create_resources()  # (CREATES MADSCI RESOURCES FROM CASSETTE DETAILS PARSED BY INVENTORY HANDLER)
+        self.create_resources()
 
-        # initialize the node
+        # Initialize the node.
         self.logger.log("Node initializing...")
         self.logger.log_info(
             f"Using host: {self.config.liconic_driver_host}, port: {self.config.liconic_driver_port}"
@@ -73,71 +76,72 @@ class LiconicRestNode(RestNode):
         )
 
     def shutdown_handler(self) -> None:
-        """Called to shutdown the node. Should be used to close connections to devices or release any other resources."""
+        """Shuts down the LiCONiC incubator REST node."""
         try:
-            self.logger.log("Shutting down")
+            self.logger.log("Shutting down.")
             if self.liconic_interface is not None:
-                self.shutdown_has_run = True
                 del self.liconic_interface
                 self.liconic_interface = None
                 self.logger.log("Shutdown complete.")
         except Exception as err:
-            self.logger.log_error(f"Error shutting down the LiCONiC Node: {err}")
+            self.logger.log_error(f"Error shutting down the LiCONiC REST Node: {err}")
 
     def init_resource_templates(self) -> None:
-        """Initialize resource templates for the node module."""
+        """Initializes any resource templates."""
 
         self.resource_client.create_template(
             resource=Slot(
-                resource_description="The conveyor belt plate nest on the LiCONiC incubator",
+                resource_description="The conveyor belt slot resource on the LiCONiC incubator",
             ),
             template_name="liconic_conveyor.nest",
             description="Template of a liconic conveyor nest",
             tags=["PlateNest", "ANSI/SLAS"],
         )
 
-        # TODO: microplate resource template?
-
-        # TODO: deep well plate template?
-
     def create_resources(self) -> None:
-        """Create resources for the node module."""
+        """Creates all required LiCONiC incubator REST Node resources."""
 
-        # create the conveyor belt plate nest resource
+        # Create the conveyor belt slot resource.
         self.plate_carrier = self.resource_client.create_resource_from_template(
             template_name="liconic_conveyor.nest",
             resource_name=f"{self.node_definition.node_name}_conveyor.nest",
         )
 
+        # Check to see if the liconic.container resource already exists.
         self.liconic_container_resource_id = None
-
-        # TODO: make the liconic conveyor slot a child resource of the liconic container?
-        # Check to see if liconic container already exists
         liconic_container_resource_name = f"{self.node_definition.node_name}.container"
         existing_resource = None
         try:
-            existing_resource = self.resource_client.query_resource(resource_name=liconic_container_resource_name)
+            existing_resource = self.resource_client.query_resource(
+                resource_name=liconic_container_resource_name
+            )
         except Exception as e:
-            self.logger.log_warning("No existing liconic resource was found. A new LiCONiC container resource will be created. ")
-            self.logger.log_debug(f"No existing liconic container resource was found. Error={e}")
+            self.logger.log_warning(
+                "No existing liconic resource was found. A new LiCONiC container resource will be created. "
+            )
+            self.logger.log_debug(
+                f"No existing liconic container resource was found. Error={e}"
+            )
 
+        # If the liconic.container resource does not already exist, create it. 
         if existing_resource is None:
-            # Create a new LiCONiC incubator container resource.
-
-            # Create the liconic container.
+            # Create the container resource.
             liconic_container = Container(
-                resource_name = liconic_container_resource_name,
+                resource_name=liconic_container_resource_name,
                 resource_description="Container for all LiCONiC incubator contents.",
                 capacity=4,
             )
 
-            # Create stack and slot nest resources inside the incubator.
+            # Create the stack and slot resources. 
             all_stacks = {}
             for stack in self.inventory_handler.stacks_dict:
+                # Set up and validation of stack type. 
                 num_stack_nests = self.inventory_handler.stacks_dict[stack]
-                if num_stack_nests not in [10,22]:
-                    raise ValueError("CassetteConfig.xml configuration is not supported. Stacks must be type microplate (22 slots) or type deep well (10 slots).")
-                stack_type = "Deep well" if num_stack_nests == 10 else "Microplate"  # formatted for print descriptions
+                if num_stack_nests not in [10, 22]:
+                    raise ValueError(
+                        "CassetteConfig.xml configuration is not supported. Stacks must be type microplate (22 slots) or type deep well (10 slots)."
+                    )
+                stack_type = "Deep well" if num_stack_nests == 10 else "Microplate"
                 nest_type = "deep_well" if num_stack_nests == 10 else "microplate"
 
                 # Create the current stack resource container.
@@ -145,76 +149,72 @@ class LiconicRestNode(RestNode):
                     resource_name=f"stack{stack}",
                     resource_description=f"{stack_type} stack resource. Contains {num_stack_nests} slot locations.",
                     capacity=num_stack_nests,
-                    attributes={
-                        "stack_type": nest_type
-                    }
+                    attributes={"stack_type": nest_type},
                 )
 
                 # Create all the slot resources for the current stack.
                 all_slots_in_current_stack = {}
                 for i in range(num_stack_nests):
                     current_slot = Slot(
-                        resource_name = f"slot{i+1}",
-                        resource_description=f"stack{stack}_slot{i+1} nest resource in LiCONiC incubator",
-                        attributes={
-                            "slot_type": nest_type
-                        }
+                        resource_name=f"slot{i + 1}",
+                        resource_description=f"stack{stack}_slot{i + 1} nest resource in LiCONiC incubator",
+                        attributes={"slot_type": nest_type},
                     )
-                    all_slots_in_current_stack[str(i+1)] = current_slot
+                    all_slots_in_current_stack[str(i + 1)] = current_slot
                 current_stack.populate_children(all_slots_in_current_stack)
 
-                # Add current stack to all stacks dictionary.
+                # Add current stack to dictionary of all stacks.
                 all_stacks[str(stack)] = current_stack
 
-            # Add all stacks to the liconic container as children.
+            # Add all stacks to the liconic.container as children.
             liconic_container.populate_children(all_stacks)
 
-            # Register the liconic container with the Resource Manager
+            # Register the liconic.container with the Resource Client.
             self.liconic_container_resource = self.resource_client.add_resource(
                 resource=liconic_container
             )
-            self.liconic_container_resource_id = self.liconic_container_resource.resource_id
+            self.liconic_container_resource_id = (
+                self.liconic_container_resource.resource_id
+            )
 
         else:
             # There is an existing LiCONiC container resource.
-            self.logger.log_info(f"Existing {liconic_container_resource_name} resource found.")
+            self.logger.log_info(
+                f"Existing {liconic_container_resource_name} resource found."
+            )
 
-            """Check that the stack/slot configuration of the existing resource matches
-            that in the CassetteConfig.xml"""
+            # Check that existing resource reflects current CassetteConfig.xml configuration.
             configuration_is_matching = True
             for stack in self.inventory_handler.stacks_dict:
                 num_slots_in_config = self.inventory_handler.stacks_dict[stack]
-                num_slots_in_existing_resource = existing_resource.children[str(stack)].capacity
+                num_slots_in_existing_resource = existing_resource.children[
+                    str(stack)
+                ].capacity
                 if int(num_slots_in_config) != int(num_slots_in_existing_resource):
                     configuration_is_matching = False
 
-            if configuration_is_matching is True: # MATCHING
-                self.logger.info(f"Existing {liconic_container_resource_name} resource stack configuration matches configuration of CassetteConfig.xml.")
+            # Configurations match.
+            if configuration_is_matching is True:
+                self.logger.info(
+                    f"Existing {liconic_container_resource_name} resource stack configuration matches configuration of CassetteConfig.xml."
+                )
                 self.liconic_container_resource = existing_resource
                 self.liconic_container_resource_id = existing_resource.resource_id
-            else:  # NOT MATCHING
-                self.logger.log_error(f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource.")
-                raise Exception(f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource.")
-
-        # NOTES FROM CHAT WITH RYAN
-            # THIS IS THE MOVE!
-                # Case 1: there's no existing implementation (new node construct based on xml)
-                    # create resource after initializing all resources
-
-                # Case 2: Already exists
-                    # Get the existing version and make changes to it.
-                    # query the whole thing
-                    # make changes locally
-                    # push all back up with update
-
-                # NOTE: You can treat the resource items as python objects
-                    # parent.children.append()
-                    # parent.child[0] = the child... etc.
+            
+            # Configurations do not match.
+            else:  
+                self.logger.log_error(
+                    f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource."
+                )
+                raise Exception(
+                    f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource."
+                )
 
     def state_handler(self) -> None:
         """Periodically called to update the current state of the node."""
+
         if self.liconic_interface is None:
-            self.logger.log_error("Liconic interface is not initialized")
+            self.logger.log_error("Liconic interface is not initialized.")
             return
         if self.liconic_interface.is_busy:
             self.node_state = {
@@ -227,7 +227,7 @@ class LiconicRestNode(RestNode):
             }
             self.logger.info("BUSY")
         else:
-            # query device for temperature and humidity
+            # Query the device for temperature and humidity.
             actual_climate = self.liconic_interface.read_actual_climate()
             self.cached_current_temperature = actual_climate[0]
             self.cached_current_humidity = actual_climate[1]
@@ -235,6 +235,7 @@ class LiconicRestNode(RestNode):
             self.cached_target_temperature = target_climate[0]
             self.cached_target_humidity = target_climate[1]
 
+            # Query the device for presence of labware on conveyor belt location.
             transfer_station_status = (
                 self.liconic_interface.read_transfer_station_detector()
             )
@@ -242,6 +243,7 @@ class LiconicRestNode(RestNode):
             if transfer_station_status == -1:
                 self.cached_transfer_station_occupied = "ERROR"
 
+            # Update the node state.
             self.node_state = {
                 "liconic_status_code": "READY",
                 "current_temperature": self.cached_current_temperature,
@@ -252,6 +254,8 @@ class LiconicRestNode(RestNode):
             }
             self.logger.info("READY")
 
+
+    # === ACTIONS ===
     @action(
         name="set_target_temp",
         description="Set the target temperature of the incubator",
@@ -259,24 +263,23 @@ class LiconicRestNode(RestNode):
     def set_target_temp(
         self, temp: Annotated[float, "target temperature in celsius"]
     ) -> None:
-        """Sets the target temperature of the incubator"""
+        """Sets the target temperature of the incubator."""
 
-        # Validate temperature argument with pydantic
+        # Validate the temperature argument.
         try:
             SetTemperatureModel(temperature=temp)
         except Exception as err:
-            # Fail action, don't put device into error state
+            # Fail action. Do not put device into an error state. 
             self.logger.log_error(f"Error validating set_target_temp arguments: {err}")
             return ActionFailed(errors=str(err))
 
-        # Set the target temperature
+        # Set the target temperature.
         try:
-            # get the current climate conditions
+            # Get the current climate conditions.
             climate = self.liconic_interface.read_set_climate()
             temp = float(temp)
-            # set the new target temperature while keeping humidity, CO2, and N2 the same
+            # Set the new target temperature while keeping humidity, CO2, and N2 the same.
             climate[0] = temp
-            # set new climate with new temperature, making sure to preserve other values
             self.liconic_interface.write_set_climate(
                 temperature=climate[0],
                 humidity=climate[1],
@@ -292,7 +295,7 @@ class LiconicRestNode(RestNode):
 
     @action(
         name="set_target_humidity",
-        description="Set the target humidity of the incubator",
+        description="Set the target humidity of the incubator.",
     )
     def set_target_humidity(
         self, humidity: Annotated[float, "target humidity"]
@@ -427,7 +430,9 @@ class LiconicRestNode(RestNode):
         """Load a plate into the incubator"""
 
         # Collect current liconic container resource
-        liconic_resource = self.resource_client.get_resource(self.liconic_container_resource_id)
+        liconic_resource = self.resource_client.get_resource(
+            self.liconic_container_resource_id
+        )
 
         # Validate arguments with pydantic model
         try:
@@ -436,7 +441,7 @@ class LiconicRestNode(RestNode):
                 plate_id=plate_id,
                 stack=stack,
                 slot=slot,
-                current_liconic_resource = liconic_resource,
+                current_liconic_resource=liconic_resource,
                 resource_tracker=self.inventory_handler,
             )
         except Exception as err:
@@ -447,8 +452,7 @@ class LiconicRestNode(RestNode):
         # Find next free slot if none specified
         if stack is None and slot is None:
             stack, slot = self.inventory_handler.get_next_free_slot(
-                plate_type=plate_type,
-                current_liconic_resource=liconic_resource
+                plate_type=plate_type, current_liconic_resource=liconic_resource
             )
 
         # Check if there's a plate in the transfer station
@@ -463,20 +467,30 @@ class LiconicRestNode(RestNode):
         try:
             plate_resource = self.resource_client.get_resource(self.plate_carrier).child
         except Exception as e:
-            self.logger.log_error(f"There is no plate resource on the conveyor belt to load. {e}")
-            return ActionFailed(f"There is no plate resource on the conveyor belt to load. {e}")
+            self.logger.log_error(
+                f"There is no plate resource on the conveyor belt to load. {e}"
+            )
+            return ActionFailed(
+                f"There is no plate resource on the conveyor belt to load. {e}"
+            )
 
         # we can assume a plate resource will be there (plate_id might not be listed as an attribute yet)
         # TODO: add liconic_plate_id attribute to plate resource
         if plate_id:
             try:
-                existing_liconic_plate_id = plate_resource.attributes["liconic_plate_id"]
+                existing_liconic_plate_id = plate_resource.attributes[
+                    "liconic_plate_id"
+                ]
 
                 # compare to entered plate id
                 if plate_id != existing_liconic_plate_id:
-                    self.logger.log_warning(f"Existing liconic_plate_id attribute {existing_liconic_plate_id} does not match user entered plate id {plate_id}.")
-            except Exception as e:
-                self.logger.log_info("plate resource has no existing liconic_plate_id attribute.")
+                    self.logger.log_warning(
+                        f"Existing liconic_plate_id attribute {existing_liconic_plate_id} does not match user entered plate id {plate_id}."
+                    )
+            except Exception:
+                self.logger.log_info(
+                    "plate resource has no existing liconic_plate_id attribute."
+                )
             # set the plate id attribute
             plate_resource.attributes["liconic_plate_id"] = plate_id
             self.resource_client.add_or_update_resource(plate_resource)
@@ -493,12 +507,10 @@ class LiconicRestNode(RestNode):
             slot=slot,
             plate_type=plate_type,
             plate_resource=plate_resource,
-            current_liconic_resource = liconic_resource,
+            current_liconic_resource=liconic_resource,
         )
         self.logger.log_info(f"Plate loaded into LiCONiC stack {stack}, slot {slot}")
         return None
-
-
 
     @action(name="unload_plate", description="Unload a plate from the incubator")
     def unload_plate(
@@ -513,7 +525,9 @@ class LiconicRestNode(RestNode):
         """Unload a plate from the incubator"""
 
         # Collect current liconic container resource
-        liconic_resource = self.resource_client.get_resource(self.liconic_container_resource_id)
+        liconic_resource = self.resource_client.get_resource(
+            self.liconic_container_resource_id
+        )
 
         # Validate arguments with pydantic model
         self.logger.info(
@@ -525,7 +539,7 @@ class LiconicRestNode(RestNode):
                 stack=stack,
                 slot=slot,
                 resource_tracker=self.inventory_handler,
-                current_liconic_resource = liconic_resource,
+                current_liconic_resource=liconic_resource,
             )
             # Extract validated values
             plate_id = model.plate_id
@@ -552,9 +566,7 @@ class LiconicRestNode(RestNode):
 
         # Unload the plate in resource handler
         self.inventory_handler.remove_plate(
-            stack=stack,
-            slot=slot,
-            current_liconic_resource=liconic_resource
+            stack=stack, slot=slot, current_liconic_resource=liconic_resource
         )
         self.logger.info(f"Plate unloaded from LiCONiC stack {stack}, slot {slot}")
         return None
@@ -572,9 +584,8 @@ class LiconicRestNode(RestNode):
         plate_name: Annotated[Optional[str], "plate_name"] = None,
         liconic_plate_id: Annotated[Optional[str], "plate id"] = None,
     ) -> None:
-
         plate_resource = Resource(
-            resource_name = plate_name if plate_name else f"{plate_type} resource",
+            resource_name=plate_name if plate_name else f"{plate_type} resource",
         )
 
         # Check that plate_type is supported.
@@ -591,8 +602,12 @@ class LiconicRestNode(RestNode):
 
         # Check that no plate resource is already on the conveyor belt
         if self.resource_client.get_resource(self.plate_carrier).child:
-            self.logger.log_error("A plate resource already exists on the LiCONiC conveyor belt nest.")
-            return ActionFailed("A plate resource already exists on the LiCONiC conveyor belt nest.")
+            self.logger.log_error(
+                "A plate resource already exists on the LiCONiC conveyor belt nest."
+            )
+            return ActionFailed(
+                "A plate resource already exists on the LiCONiC conveyor belt nest."
+            )
 
         # Push new plate resource onto conveyor belt slot resource
         self.resource_client.push(
@@ -616,10 +631,13 @@ class LiconicRestNode(RestNode):
             self.resource_client.pop(self.plate_carrier)
             self.logger.log_info("Popping resource from conveyor nest slot.")
         else:
-            self.logger.log_error("No plate resource exists in the conveyor nest to pop.")
+            self.logger.log_error(
+                "No plate resource exists in the conveyor nest to pop."
+            )
             return ActionFailed("No plate resource exists in the conveyor nest to pop.")
 
         return None
+
 
 if __name__ == "__main__":
     liconic_module = LiconicRestNode()

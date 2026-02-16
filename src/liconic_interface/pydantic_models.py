@@ -2,9 +2,8 @@
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator, model_validator
-
 from madsci.common.types.resource_types import Container
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class LoadPlateModel(BaseModel):
@@ -47,7 +46,7 @@ class LoadPlateModel(BaseModel):
             # 3a. Check that the stack is valid for the specified plate type
             valid_stacks = self.resource_tracker.find_valid_stack(
                 plate_type=self.plate_type,
-                resource = self.current_liconic_resource,
+                resource=self.current_liconic_resource,
             )
             if self.stack not in valid_stacks:
                 raise ValueError(
@@ -64,9 +63,7 @@ class LoadPlateModel(BaseModel):
                 )
             # 3c. Check that the location is not already occupied
             if self.resource_tracker.is_location_occupied(
-                self.stack,
-                self.slot,
-                self.current_liconic_resource
+                self.stack, self.slot, self.current_liconic_resource
             ):
                 raise ValueError(
                     f"Location stack {self.stack}, slot {self.slot} already occupied."
@@ -102,7 +99,6 @@ class UnloadPlateModel(BaseModel):
         # TESTING
         super().__init__(**data)
 
-
     @field_validator("stack")
     def validate_stack(cls, v: Optional[int]) -> Optional[int]:  # noqa: N805
         """Validates stack user entered argument"""
@@ -132,7 +128,7 @@ class UnloadPlateModel(BaseModel):
         if (self.stack and self.slot) and not self.resource_tracker.is_valid_stack_slot(
             stack=self.stack,
             slot=self.slot,
-            current_liconic_resource = self.current_liconic_resource,
+            current_liconic_resource=self.current_liconic_resource,
         ):
             raise ValueError(
                 f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
@@ -144,8 +140,8 @@ class UnloadPlateModel(BaseModel):
         if self.plate_id and str(self.plate_id).lower() != "none":
             try:
                 found_stack, found_slot = self.resource_tracker.find_plate(
-                    plate_id = str(self.plate_id),
-                    current_liconic_resource = self.current_liconic_resource,
+                    plate_id=str(self.plate_id),
+                    current_liconic_resource=self.current_liconic_resource,
                 )
             except Exception as e:
                 raise Exception(f"Error finding plate ID {self.plate_id}: {e}") from e
@@ -153,7 +149,9 @@ class UnloadPlateModel(BaseModel):
             # 4a. If stack/slot also provided, validate against found location
             if self.stack and self.slot:
                 if not self.resource_tracker.is_valid_stack_slot(
-                    stack=self.stack,slot=self.slot,current_liconic_resource = self.current_liconic_resource
+                    stack=self.stack,
+                    slot=self.slot,
+                    current_liconic_resource=self.current_liconic_resource,
                 ):
                     raise ValueError(
                         f"Invalid stack/slot combination: stack {self.stack}, slot {self.slot}"
@@ -177,7 +175,8 @@ class UnloadPlateModel(BaseModel):
         if not self.resource_tracker.is_location_occupied(
             stack=self.stack,
             slot=self.slot,
-            current_liconic_resource = self.current_liconic_resource):
+            current_liconic_resource=self.current_liconic_resource,
+        ):
             raise ValueError(
                 f"No plate found at stack {self.stack}, slot {self.slot} to unload."
             )

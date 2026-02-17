@@ -3,7 +3,7 @@
 from liconic_interface.resource_types import PlateResource
 
 plate_definitions = {
-    "flat_bottom_96well": PlateResource(
+    "microplate": PlateResource(
         plate_height=14,
         grip_height=1,
         plate_height_with_lid=16,
@@ -11,7 +11,7 @@ plate_definitions = {
         lid_grip_height=4,
         lid_removal_grip_height=12,
     ),
-    "deep_96well": PlateResource(
+    "deep_well": PlateResource(
         plate_height=0,
         grip_height=0,
         plate_height_with_lid=0,

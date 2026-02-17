@@ -416,7 +416,7 @@ class LiconicRestNode(RestNode):
     def load_plate(
         self,
         plate_type: Annotated[
-            str, "plate type (flat_bottom_96well, deep_96well, etc.)"
+            str, "plate type (microplate, deep_well, etc.)"
         ],
         plate_id: Annotated[Optional[str], "plate id"] = None,
         stack: Annotated[
@@ -495,10 +495,10 @@ class LiconicRestNode(RestNode):
             plate_resource.attributes["liconic_plate_id"] = plate_id
             self.resource_client.add_or_update_resource(plate_resource)
 
-        # # Load the plate
-        # self.liconic_interface.load_plate(stack=stack, slot=slot)
-        # while self.liconic_interface.is_busy:
-        #     time.sleep(1)
+        # Load the plate
+        self.liconic_interface.load_plate(stack=stack, slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
 
         # Set plate resource as child to slot resource
         self.inventory_handler.add_plate(
@@ -550,19 +550,19 @@ class LiconicRestNode(RestNode):
             self.logger.log_error(f"Error validating unload_plate arguments: {err}")
             return ActionFailed(errors=str(err))
 
-        # # Ensure transfer station is clear
-        # if self.liconic_interface.read_transfer_station_detector() == 1:
-        #     self.logger.log_error(
-        #         "Transfer station occupied, please clear it before unloading."
-        #     )
-        #     return ActionFailed(
-        #         errors="Transfer station occupied, please clear it before unloading."
-        #     )
+        # Ensure transfer station is clear
+        if self.liconic_interface.read_transfer_station_detector() == 1:
+            self.logger.log_error(
+                "Transfer station occupied, please clear it before unloading."
+            )
+            return ActionFailed(
+                errors="Transfer station occupied, please clear it before unloading."
+            )
 
-        # # Unload the plate
-        # self.liconic_interface.unload_plate(stack=stack, slot=slot)
-        # while self.liconic_interface.is_busy:
-        #     time.sleep(1)
+        # Unload the plate
+        self.liconic_interface.unload_plate(stack=stack, slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
 
         # Unload the plate in resource handler
         self.inventory_handler.remove_plate(
@@ -571,7 +571,7 @@ class LiconicRestNode(RestNode):
         self.logger.info(f"Plate unloaded from LiCONiC stack {stack}, slot {slot}")
         return None
 
-    # Actions for use in remote mode
+    # 
     @action(
         name="push_labware_to_conveyor",
         description="Push a plate resource to the conveyor nest slot resource.",
@@ -579,28 +579,40 @@ class LiconicRestNode(RestNode):
     def push_labware_to_conveyor(
         self,
         plate_type: Annotated[
-            str, "plate type (flat_bottom_96well, deep_96well, etc.)"
+            str, "plate type (microplate, deep_well, etc.)"
         ],
         plate_name: Annotated[Optional[str], "plate_name"] = None,
         liconic_plate_id: Annotated[Optional[str], "plate id"] = None,
     ) -> None:
+        """
+        Pushes a labware resource (for either a microplate or deep well plate) onto the conveyor belt resource slot.
+
+        NOTE: This is useful when using the LiCONiC REST Node in local only mode. If you're connecting this LiCONiC 
+        incubator to other instruments via MADSci, you will not need to use this method. Plate resources will be
+        pushed to the conveyor belt slot resource when they are transferred onto the conveyor belt by a MADSci integrated 
+        robotic arm.
+
+        Args:
+            plate_type (str): Category associated with the labware you wish to load. Either "microplate" or "deep_well".
+            plate_name (str, optional): Name for the labware. 
+            liconic_plate_id (str, optional): Unique ID for the labware. Can be used to load/unload the labware from the incubator. 
+                NOTE: liconic_plate_id is not the same as the MADSci resource_id. 
+        """
+        # Create plate resource for the labware.
         plate_resource = Resource(
             resource_name=plate_name if plate_name else f"{plate_type} resource",
         )
 
         # Check that plate_type is supported.
-        if plate_type == "flat_bottom_96well":
-            plate_resource.attributes["plate_type"] = "microplate"
-        elif plate_type == "deep_96well":
-            plate_resource.attributes["plate_type"] = "deep_well"
-        else:
+        if not self.inventory_handler.is_valid_plate_type(plate_type=plate_type):
             return ActionFailed(f"{plate_type} is unsupported.")
+        plate_resource.attributes["plate_type"] = plate_type
 
         # Add plate_id attribute if provided.
         if liconic_plate_id:
             plate_resource.attributes["liconic_plate_id"] = liconic_plate_id
 
-        # Check that no plate resource is already on the conveyor belt
+        # Check that no plate resource is already on the conveyor belt.
         if self.resource_client.get_resource(self.plate_carrier).child:
             self.logger.log_error(
                 "A plate resource already exists on the LiCONiC conveyor belt nest."
@@ -616,7 +628,6 @@ class LiconicRestNode(RestNode):
         )
         return None
 
-    # Actions for use in remote mode
     @action(
         name="pop_labware_from_conveyor",
         description="Pop a plate resource from the conveyor nest slot resource.",

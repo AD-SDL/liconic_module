@@ -306,7 +306,8 @@ class InventoryHandler:
         """
         if str(stack) not in current_liconic_resource.children:
             return False
-        return str(slot) not in current_liconic_resource.children[str(stack)].children
+        return str(slot) in current_liconic_resource.children[str(stack)].children
+
 
     def parse_cassette_config(self, cassette_config_path: Path) -> dict[int, int]:
         """

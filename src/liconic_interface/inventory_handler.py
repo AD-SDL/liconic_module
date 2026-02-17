@@ -1,82 +1,19 @@
-"""Provides a plate tracking class for managing the LiCONiC's storage"""
+"""Handles communications with the Resource Client to manage the inventory of the LiCONiC incubator."""
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 from defusedxml.ElementTree import parse
+from madsci.client.event_client import EventClient
 from madsci.client.resource_client import ResourceClient
-from madsci.common.types.base_types import MadsciBaseModel as BaseModel
 from madsci.common.types.resource_types import Resource
 
 from liconic_interface.labware_definitions import plate_definitions
-
-
-class Slot(BaseModel):
-    """Defines the structure of a slot"""
-
-    occupied: bool = False
-    plate_id: Optional[str] = None
-    time_added: Optional[str] = None
-
-
-class Stack(BaseModel):
-    """Defines the structure of a stack"""
-
-    slots: dict[int, Slot]
-
-    def __init__(self, num_slots: int = 22, **data: Any) -> None:
-        """Initializes the stack object"""
-        if "slots" not in data:
-            data["slots"] = {slot: Slot() for slot in range(1, num_slots + 1)}
-        super().__init__(**data)
-
-    def __getitem__(self, item: int) -> Slot:
-        """Get a slot in the stack"""
-        return self.slots[item]
-
-    def __setitem__(self, key: int, value: Slot) -> None:
-        """Set a slot in the stack"""
-        self.slots[key] = value
-
-    def __delitem__(self, key: int) -> None:
-        """Delete a slot in the stack"""
-        del self.slots[key]
-
-
-# class InventoryFile(BaseModel):
-#     """Defines the structure of the inventory file"""
-#     cassette_stacks: dict[int, int] = Field(
-#         default_factory=dict,
-#         exclude=True,
-#         repr=False,
-#     )
-#     stacks: dict[int, Stack] = Field(default_factory=dict)
-
-#     def model_post_init(self, __context: Any) -> None:
-#         """Initializes the stacks based on cassette_stacks"""
-#         if self.stacks:
-#             return
-
-#         self.stacks = {
-#             stack_id: Stack(num_slots=levels)
-#             for stack_id, levels in self.cassette_stacks.items()
-#         }
-
-#     def __getitem__(self, item: int) -> Stack:
-#         """Get a stack in the inventory file"""
-#         return self.stacks[item]
-
-#     def __setitem__(self, key: int, value: Stack) -> None:
-#         """Set a stack in the inventory file"""
-#         self.stacks[key] = value
-
-#     def __delitem__(self, key: int) -> None:
-#         """Delete a stack in the inventory file"""
-#         del self.stacks[key]
+from liconic_interface.pydantic_models import LoadPlateModel, UnloadPlateModel
 
 
 class InventoryHandler:
-    """Tracks the plate inventory of a LiCONiC incubator"""
+    """Communicates with the Resource Client to track incubator inventory."""
 
     def __init__(
         self,
@@ -84,16 +21,19 @@ class InventoryHandler:
         resource_client: Optional[ResourceClient] = None,
         node_name: Optional[str] = None,
     ) -> None:
-        """Initialize the inventory handler"""
+        """Initialize the inventory handler."""
 
-        # Load labware definitions
+        # Load labware definitions.
         self.labware_definitions = plate_definitions
         self.cassette_config_path = Path(cassette_config_path).expanduser().resolve()
         self.stacks_dict = {}
         self.resource_client = resource_client
         self.node_name = node_name
 
-        # parse the cassette config to determine stack sizes
+        # Initialize EventClient for logging
+        self.logger = EventClient()
+
+        # Parse the cassette config to determine stack sizes.
         self.stacks_dict = self.parse_cassette_config(self.cassette_config_path)
 
     def add_plate(
@@ -101,105 +41,103 @@ class InventoryHandler:
         plate_type: str,
         stack: int,
         slot: int,
+        plate_resource: Resource,
+        current_liconic_resource: Resource,
         plate_id: Optional[str] = None,
-        plate_resource: Resource = None,
-        current_liconic_resource: Resource = None,
+        skip_validation: bool = False,
     ) -> None:
         """
-        Updates the liconic inventory file when a new plate is placed into the incubator.
+        Updates the Resource Client when a plate is loaded into the incubator.
 
-        Note: Some validations are included here for safety if this function is called directly.
         Args:
-            plate_type (str): type of plate being added
-            stack (int): stack number where plate is being added
-            slot (int): slot number where plate is being added
-            plate_id (Optional[str], optional): unique identifier for the plate. Defaults to None.
-        Raises:
-            ValueError: if plate type is unsupported
-            ValueError: if stack is invalid for plate type
-            ValueError: if stack/slot combination is invalid
-            Exception: if location is already occupied
-
+            plate_type (str): Type of plate being added ("microplate" or "deep_well").
+            stack (int): Stack number where plate is being added.
+            slot (int): Slot number where plate is being added.
+            plate_resource (Resource): MADSci resource object for the plate being added to the incubator.
+            current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
+            plate_id (str, optional): Unique identifier for the plate. Defaults to None.
+            skip_validation (bool, optional): True to skip argument validations, False otherwise.
+                NOTE: If this add_plate method is called from the load_plate action in the
+                MADSci REST node, validation has already been completed and is not necessary.
         """
-        # Validations if function is called directly
-        if not self.is_valid_plate_type(plate_type):  # SHOULD STILL WORK
-            raise ValueError(f"Unsupported plate type: {plate_type}")
-        if stack not in self.find_valid_stack(
-            plate_type=plate_type, current_liconic_resource=current_liconic_resource
-        ):
-            raise ValueError(f"Invalid stack {stack} for plate type {plate_type}")
-        if not self.is_valid_stack_slot(
-            stack=stack, slot=slot, current_liconic_resource=current_liconic_resource
-        ):
-            raise ValueError(
-                f"Invalid stack/slot combination: stack {stack}, slot {slot}"
-            )
-        if self.is_location_occupied(
-            stack=stack,
-            slot=slot,
-            current_liconic_resource=current_liconic_resource,
-        ):
-            raise Exception("Location already occupied")
+        if not skip_validation:
+            try:
+                LoadPlateModel(
+                    plate_type=plate_type,
+                    plate_id=plate_id,
+                    stack=stack,
+                    slot=slot,
+                    current_liconic_resource=current_liconic_resource,
+                    resource_tracker=self,
+                )
+            except Exception as err:
+                self.logger.log_error(f"Error validating load_plate arguments: {err}")
+                raise
 
-        # Push plate resource onto stack/slot nest resource
+        # Push plate resource onto stack/slot nest resource.
         stack_resource = current_liconic_resource.children[str(stack)]
         slot_resource = stack_resource.children[str(slot)]
         self.resource_client.push(resource=slot_resource, child=plate_resource)
+        self.logger.log_info(
+            f"Plate resource {plate_resource.resource_id} pushed into stack {stack}, slot {slot}."
+        )
 
     def remove_plate(
         self,
+        current_liconic_resource: Resource,
         plate_id: Optional[str] = None,
         stack: Optional[int] = None,
         slot: Optional[int] = None,
-        current_liconic_resource: Resource = None,
+        skip_validation: bool = False,
     ) -> None:
         """
-        Locates and removes the given plate from the inventory file
+        Updates the Resource Client when a plate is unloaded from the incubator.
 
         Args:
-            plate_type (str): type of plate being added
-            stack (int): stack number where plate is being added
-            slot (int): slot number where plate is being added
-            current_liconic_resource (Resource): Current state of the liconic container resource in MADSci Resource Client.
+            current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
+            plate_id (str, optional): Unique identifier for the plate. Defaults to None.
+            stack (int, optional): Stack number where plate is being added.
+            slot (int, optional): Slot number where plate is being added.
+            skip_validation (bool, optional): True to skip argument validations, False otherwise.
+                NOTE: If this remove_plate method is called from the unload_plate action in the
+                MADSci REST node, validation has already been completed and is not necessary.
 
-        # TODO: Remove duplicate checks!
         """
-        # Check that user provided enough information
-        if plate_id is None and stack is None and slot is None:
-            raise ValueError(
-                "Must specify plate_id or stack and slot to remove a plate"
-            )
-        if plate_id is None and (stack is None or slot is None):
-            raise ValueError(
-                "Must specify both stack and slot to remove a plate by location"
-            )
-        # Find plate if only plate_id is given
-        if plate_id and (stack is None or slot is None):
-            stack, slot = self.find_plate(
-                plate_id=plate_id, current_liconic_resource=current_liconic_resource
-            )
+        if not skip_validation:
+            try:
+                # Validate arguments with a Pydantic model.
+                model = UnloadPlateModel(
+                    plate_id=plate_id,
+                    stack=stack,
+                    slot=slot,
+                    resource_tracker=self,
+                    current_liconic_resource=current_liconic_resource,
+                )
+                # Extract validated values
+                plate_id = model.plate_id
+                stack = model.stack
+                slot = model.slot
+            except Exception as err:
+                self.logger.log_error(f"Error validating unload_plate arguments: {err}")
+                raise
 
-        # check that there is a plate in that location:
-        if not self.is_location_occupied(
-            stack=stack,
-            slot=slot,
-            current_liconic_resource=current_liconic_resource,
-        ):
-            raise Exception(f"No plate resource in location stack {stack}, slot {slot}")
-        stack_resource = current_liconic_resource.children[str(stack)]
-        slot_resource = stack_resource.children[str(slot)]
-        plate_resource = slot_resource.child
-
-        # Ensure no plate resource already exists on conveyor nest
-        # Collect conveyor plate resource, if available.
+        # Ensure conveyor nest resource location is clear in Resource Client.
         conveyor_resource = self.resource_client.query_resource(
             resource_name=f"{self.node_name}_conveyor.nest"
         )
         if conveyor_resource.child:
             raise Exception("A child resource already exists on the conveyor nest.")
 
-        # push plate resource onto conveyor resource
+        # Collect the plate resource.
+        stack_resource = current_liconic_resource.children[str(stack)]
+        slot_resource = stack_resource.children[str(slot)]
+        plate_resource = slot_resource.child
+
+        # Push plate resource onto conveyor resource.
         self.resource_client.push(resource=conveyor_resource, child=plate_resource)
+        self.logger.log_info(
+            f"Plate resource {plate_resource.resource_id} pushed onto conveyor belt."
+        )
 
     def find_plate(
         self,
@@ -207,16 +145,15 @@ class InventoryHandler:
         current_liconic_resource: Resource,
     ) -> tuple[int, int]:
         """
-        Returns the stack and slot a plate is located on, given the plate id
+        Returns the stack and slot location of a plate given the plate_id.
 
         Args:
-            plate_type (str):  name of the plate that matches existing plate definition
+            plate_id (str): Unique identifier for the plate.
             current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
 
         Returns:
-            tuple[int, int]: Tuple with the (stack, slot) location of the plate with the specified plate_id
+            tuple[int, int]: Tuple with the (stack, slot) location of the plate with the specified plate_id.
         """
-        # TODO: TEST THIS ONce A PLATE WITH A PLATE ID IS ADDED
         located_stack = None
         located_slot = None
         for stack in current_liconic_resource.children:
@@ -230,7 +167,7 @@ class InventoryHandler:
                     located_slot = int(slot)
         if located_stack and located_slot:
             return (located_stack, located_slot)
-        raise ValueError("Plate not found")
+        raise ValueError("Plate not found.")
 
     def get_next_free_slot(
         self,
@@ -238,65 +175,55 @@ class InventoryHandler:
         current_liconic_resource: Resource,
     ) -> tuple[int, int]:
         """
-        If no stack and shelf is passed into add_plate, return the next free location
+        Returns the next free stack/slot location for a given plate type.
 
         Args:
-            plate_type (str):  name of the plate that matches existing plate definition
+            plate_type (str): Plate type (microplate or deep_well).
+            current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
 
         Returns:
-            tuple[int, int]: Tuple with a (stack, slot) combination of next available location
+            tuple[int, int]: Tuple with a (stack, slot) combination of next available location.
 
         Behavior:
-           - all microplates ("flat_bottom_96well") will be loaded into stacks 1 and 2
-           - all deepwell plates ("deep_96well") will be loaded into stacks 3 and 4
-           - stacks will alternate between 1 and 2 (or 3 and 4) to balance shakers
+           - All "microplates" will be loaded into stacks with 22 slots (microplate compatible stacks).
+           - All "deep_well" plates will be loaded into stacks with 10 slots (deep well compatible stacks).
+           - Next available stack/slot location will alternate between compatible stacks to balance load.
+           - The lowest available slot number will be chosen.
         """
 
         candidate_stacks = self.find_valid_stack(
             plate_type=plate_type,
             current_liconic_resource=current_liconic_resource,
         )
-        # TESTING
-        print(f"candiadate stacks: {candidate_stacks}")
 
         if candidate_stacks:
-            # Get occupancy count for each stack in the group
+            # Collect occupancy count and first free slot information for each valid stack.
             stack_occupancy = {}
-
             any_free_slot = False
             for stack_num in candidate_stacks:
-                print(f"{stack_num=}")
                 stack_resource = current_liconic_resource.children[str(stack_num)]
                 capacity = stack_resource.capacity
-                print(f"{capacity=}")
                 occupancy_count = 0
                 first_free_slot = None
-                # for slot_num in stack_resource.children:
                 for i in range(capacity):
                     slot_num = str(i + 1)
-                    print(f"\t{slot_num=}")
                     slot_resource = stack_resource.children[slot_num]
                     occupied = len(slot_resource.children) == 1
-                    print(f"\t{occupied=}")
                     if occupied:
                         occupancy_count += 1
                     elif first_free_slot is None:
                         first_free_slot = slot_num
                         any_free_slot = True
-
                 stack_occupancy[stack_num] = (occupancy_count, first_free_slot)
 
-            print("STACK OCCUPANCY")
-            print(stack_occupancy)
-
-            # Raise exception if there are no compatible slots available
-            if any_free_slot is False:
+            # Raise exception if there are no compatible slots available.
+            if not any_free_slot:
                 raise Exception(
-                    f"No free slots available for plate type '{plate_type}'"
+                    f"No free slots available for plate type '{plate_type}'."
                 )
 
-            # Pick the stack with fewer occupied slots (to balance load)
-            # If tied, pick the lower-numbered stack
+            # Pick the stack with fewer occupied slots (to balance load).
+            # If tied, pick the lower-numbered stack.
             stack_to_use = min(
                 stack_occupancy, key=lambda s: (stack_occupancy[s][0], s)
             )
@@ -304,21 +231,21 @@ class InventoryHandler:
 
             return stack_to_use, slot_to_use
 
-        raise Exception(f"No valid stacks found for plate type '{plate_type}'")
+        raise Exception(f"No valid stacks found for plate type '{plate_type}'.")
 
     def is_location_occupied(
         self, stack: int, slot: int, current_liconic_resource: Resource
     ) -> bool:
         """
-        Given a stack and slot, determine if the location is occupied
+        Determines if a stack/slot location is occupied in the Resource Client.
 
         Args:
-            stack (int): stack number in the incubator
-            slot (int): slot number in the stack
-            current_liconic_resource: Resource object for the current incubator state
+            stack (int): Stack number in the incubator.
+            slot (int): Slot number in the stack.
+            current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
 
         Returns:
-            bool: True if location occupied, False otherwise
+            bool: True if location occupied, False otherwise.
 
         """
         stack_resource = current_liconic_resource.children[str(stack)]
@@ -329,39 +256,34 @@ class InventoryHandler:
         self, plate_type: str, current_liconic_resource: Resource
     ) -> list[int]:
         """
-        Returns a list of valid stacks for the given plate type
+        Returns a list of valid stacks for the given plate type.
 
         Args:
-            plate_type (str): name of the plate that matches existing plate definition
+            plate_type (str): Plate type (microplate or deep_well).
+            current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
 
         Returns:
-            list[int] = list of stack numbers that are valid for the given plate type
+            list[int]: List of stack numbers that are valid for the given plate type.
         """
         valid_stacks = []
-        if plate_type not in self.labware_definitions:
-            raise ValueError(f"Unsupported plate type: {plate_type}")
-        attribute_to_search = ""
-        if plate_type == "flat_bottom_96well":
-            attribute_to_search = "microplate"
-        elif plate_type == "deep_96well":
-            attribute_to_search = "deep_well"
-
+        if not self.is_valid_plate_type(plate_type=plate_type):
+            raise ValueError(f"Unsupported plate type: {plate_type}.")
         for child in current_liconic_resource.children:
             if (
                 current_liconic_resource.children[child].attributes["stack_type"]
-                == attribute_to_search
+                == plate_type
             ):
                 valid_stacks.append(int(child))
         return valid_stacks
 
     def is_valid_plate_type(self, plate_type: str) -> bool:
-        """Checks if plate type is valid based on labware definitions
+        """Checks if plate type is valid based on labware definitions.
 
         Args:
-            plate_type (str): name of the plate that matches existing plate definition
+            plate_type (str): Name of the plate that matches existing plate definition ("microplate" or "deep_well").
 
         Returns:
-            bool: True if plate type is valid, False otherwise
+            bool: True if plate type is valid, False otherwise.
         """
         return plate_type in self.labware_definitions
 
@@ -372,25 +294,35 @@ class InventoryHandler:
         current_liconic_resource: Resource,
     ) -> bool:
         """
-        Checks if the given stack and slot are valid for the current configuration
+        Checks if the given stack/slot pair are valid for the current configuration.
 
         Args:
-            stack (int): stack number in the incubator
-            slot (int): slot number in the stack (numbered bottom to top)
+            stack (int): Stack number in the incubator.
+            slot (int): Slot number in the stack (numbered bottom to top).
+            current_liconic_resource (Resource): MADSci Resource object representing the current state of the incubator.
 
         Returns:
-            bool: True if stack/slot combination is valid for the current configuration, False otherwise
+            bool: True if stack/slot combination is valid for the current configuration, False otherwise.
         """
-        valid = True
         if str(stack) not in current_liconic_resource.children:
-            valid = False
-        if str(slot) not in current_liconic_resource.children[str(stack)].children:
-            valid = False
-        return valid
+            return False
+        return str(slot) not in current_liconic_resource.children[str(stack)].children
 
     def parse_cassette_config(self, cassette_config_path: Path) -> dict[int, int]:
         """
-        Returns {cassette_id: levels}
+        Returns a dictionary representing the current configuration of the incubator
+        based on the CassetteConfig.xml file in the driver.
+
+        Args:
+            cassette_config_path (Path): Path to the cassette configuration XML file used by the driver.
+
+        Returns:
+            dict[int, int] = {
+                stack number: number of slots in this stack,
+                stack number: number of slots in this stack,
+                ...,
+            }
+
         """
         tree = parse(cassette_config_path)
         root = tree.getroot()
@@ -403,7 +335,7 @@ class InventoryHandler:
             id_el = cassette.find("ns:Id", ns)
             levels_el = cassette.find("ns:Levels", ns)
 
-            # Ignore range-based entries (Min/Max) for now
+            # Ignore range-based entries (Min/Max) for now.
             if id_el is None or levels_el is None:
                 continue
 

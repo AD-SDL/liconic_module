@@ -1,4 +1,4 @@
-"""Labware definitions for use in the rapid350 MADSci workcell"""
+"""Labware definitions for use in the RAPID 350 MADSci workcell"""
 
 from liconic_interface.resource_types import PlateResource
 

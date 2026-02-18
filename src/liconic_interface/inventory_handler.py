@@ -308,7 +308,6 @@ class InventoryHandler:
             return False
         return str(slot) in current_liconic_resource.children[str(stack)].children
 
-
     def parse_cassette_config(self, cassette_config_path: Path) -> dict[int, int]:
         """
         Returns a dictionary representing the current configuration of the incubator

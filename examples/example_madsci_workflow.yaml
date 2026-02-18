@@ -34,7 +34,7 @@ steps:
     node: liconic
     action: load_plate
     args:
-      plate_type: "flat_bottom_96_well"
+      plate_type: "microplate"
       plate_id: "1"
       stack: 1
       slot: 1
@@ -44,3 +44,5 @@ steps:
     action: unload_plate
     args:
       plate_id: "1"
+
+  

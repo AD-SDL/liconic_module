@@ -644,7 +644,14 @@ class LiconicRestNode(RestNode):
         description="Pop a plate resource from the conveyor nest slot resource.",
     )
     def pop_labware_from_conveyor(self) -> None:
-        """Pops a labware resource from the LiCONiC incubator conveyor nest slot resource."""
+        """
+        Pops a labware resource from the LiCONiC incubator conveyor nest slot resource.
+
+        NOTE: This is useful when using the LiCONiC REST Node in local only mode. If you're connecting this LiCONiC
+        incubator to other instruments via MADSci, you will not need to use this method. Plate resources will be
+        removed from the conveyor belt slot resource when they are transferred away from the conveyor belt by a MADSci integrated
+        robotic arm.
+        """
 
         # Check that a plate resource exists on the conveyor nest slot resource in Resource Client.
         if self.resource_client.get_resource(self.plate_carrier).child:

@@ -49,17 +49,14 @@ General install instructions (using pip):
     .venv/Scripts/activate
     ```
 
-5a. Install the dependencies:
+5. Install the dependencies:
     ```sh
     pip install -e .
     ```
 
-If you wish to install the dependencies using pdm, use the following command:
+If you wish to install the dependencies using pdm, use the following command instead of step 5 above:
 
-5b. Install the dependencies:
-    ```sh
     pdm install
-    ```
 
 
 ## Running the Interface
@@ -111,7 +108,7 @@ Example usage with all optional arguments:
 
 ### Example Usage in MADSci Workflow YAML file
 
-The LiCONiC MADSci REST Node exposes 6 actions to the user: set_target_temp, set_target_humidity, begin_shake, end_shake, load_plate, and unload_plate.
+The LiCONiC MADSci REST Node exposes 8 actions to the user: set_target_temp, set_target_humidity, begin_shake, end_shake, load_plate, unload_plate, push_plate_to_conveyor, and pop_plate_from_conveyor.
 
 The link below shows an example of a MADSci Workflow file used to interact with the LiCONiC STX device.
 
@@ -123,12 +120,12 @@ The link below shows an example of a MADSci Workflow file used to interact with 
 
 **begin_shake** takes two arguments: an int shaker_speed and an optional int shaker_id. The shaker_speed argument is the speed at which to shake, and the shaker_id argument defines which shaker(s) will begin shaking. shaker_id value 1 specifies shaker 1 (stacks 1 and 2), 2 specifies shaker 2 (stacks 3 and 4), and None begins shaking both shakers.
 
-**end_shake** takes one optional shaker_id argument. shaker_id value 1 specifies shaker 1 (stacks 1 and 2), 2 specifies shaker 2 (stacks 3 and 4), and None stops both shakers.
+**end_shake** takes one optional int shaker_id argument. shaker_id value 1 specifies shaker 1 (stacks 1 and 2), 2 specifies shaker 2 (stacks 3 and 4), and None stops both shakers.
 
-**load_plate** takes four arguments: str plate_type, optional str plate_id, optional int stack, and optional int slot. plate_type refers to the plate types defined in labware_definitions.py ("microplate" and "deep_well"). plate_id allows you to associate an ID with the plate you're loading. stack and slot allow you to load a plate into a specific stack/slot location. If both stack and slot aren't specified, then the plate will be loaded into the next available stack/slot location that is compatible with the specified plate type.
+**load_plate** takes four arguments: str plate_type, optional str plate_id, optional int stack, and optional int slot. plate_type refers to the plate types defined in labware_definitions.py ("microplate" and "deep_well" are valid inputs). plate_id allows you to associate an ID with the plate you're loading. stack and slot allow you to load a plate into a specific stack/slot location. If both stack and slot aren't specified, then the plate will be loaded into the next available stack/slot location that is compatible with the specified plate type.
 
 **unload_plate** takes three arguments: optional str plate_id, optional int stack, and optional int slot. You must specify either plate_id or both stack and slot. plate_id allows unloading of a plate by ID. stack and slot allow you to unload plates by location, without the need for plate_id.
 
-**push_plate_to_conveyor** is a utility method meant to aid the use of this MADSci REST Node in local only mode. This method takes three arguments: str plate_type ("microplate" or "deep_well" are valid inputs), optional str plate_name, and optional str liconic_plate_id. This method creates a MADSci resource for the plate based on the user-entered plate_type and pushes that new resource onto the LiCONiC STX conveyor belt slot resource.
+**push_plate_to_conveyor** is a utility method meant to aid the use of this MADSci REST Node in local only mode. This method takes three arguments: str plate_type ("microplate" and "deep_well" are valid inputs), optional str plate_name, and optional str liconic_plate_id. This method creates a MADSci resource for the plate based on the user-entered plate_type and pushes that new resource onto the LiCONiC STX conveyor belt slot resource.
 
 **pop_plate_from_conveyor** is a utility method meant to aid the use of this MADSci REST Node in local only mode. This method takes no arguments and simply removes (or pops) any plate MADSci resource that exists on the LiCONiC STX conveyor belt slot resource.

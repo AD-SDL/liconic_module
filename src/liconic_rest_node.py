@@ -1,243 +1,671 @@
-"""REST-based client for the Liconic"""
+"""
+A MADSci-compatible REST node for the LiCONiC StoreX Automated Incubator Shakers.
+
+Our incubator model is the STX88.
+"""
 
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi.datastructures import State
-from wei.modules.rest_module import RESTModule
-from wei.types import StepResponse
-from wei.types.module_types import ModuleState
+from madsci.common.types.action_types import ActionFailed
+from madsci.common.types.node_types import RestNodeConfig
+from madsci.common.types.resource_types import Container, Resource, Slot
+from madsci.node_module.helpers import action
+from madsci.node_module.rest_node_module import RestNode
 
-from liconic_interface import Stx
-from liconic_interface.resource_tracker import ResourceTracker
-
-liconic_module = RESTModule(
-    name="liconic_node",
-    description="A module for controlling a Liconic STX incubator",
-    port=2010,
-)
-
-liconic_module.arg_parser.add_argument(
-    "--device",
-    type=str,
-    default="/dev/ttyUSB0",
-    help="Serial device for communicating with the device",
-)
-liconic_module.arg_parser.add_argument(
-    "--resources_path",
-    type=Path,
-    default=Path.home() / "liconic_temp/resources/liconic_resources.yaml",
-    help="Path to resources directory",
+from liconic_interface.inventory_handler import InventoryHandler
+from liconic_interface.liconic_interface import LICONIC
+from liconic_interface.pydantic_models import (
+    BeginShakeModel,
+    EndShakeModel,
+    LoadPlateModel,
+    SetHumidityModel,
+    SetTemperatureModel,
+    UnloadPlateModel,
 )
 
 
-@liconic_module.startup()
-def liconic_startup(state: State):
-    """Handles initializing the Liconic STX object and resources"""
-    state.liconic = None
-    state.module_resources = None
-    state.liconic = Stx(state.device)
-    state.resources_path = Path(state.resources_path).expanduser().resolve()
-    state.module_resources = ResourceTracker(state.resources_path)
+class LiconicNodeConfig(RestNodeConfig):
+    """Configuration for the LiCONiC REST node."""
 
-
-@liconic_module.shutdown()
-def liconic_shutdown(state: State):
-    """Handles cleaning up the Liconic STX object"""
-    if state.liconic is not None:
-        del state.liconic
-
-
-@liconic_module.state_handler()
-def liconic_state_handler(state: State):
-    """Returns the state of the Liconic device and module"""
-    liconic: Optional[Stx] = state.liconic
-    if liconic is None:
-        return ModuleState(
-            status=state.status,
-            error=state.error,
-        )
-    if liconic.is_busy:
-        return ModuleState(
-            status=state.status,
-            error=state.error,
-            current_temperature=state.cached_current_temperature,
-            target_temperature=state.cached_target_temperature,
-            current_humidity=state.cached_current_humidity,
-            target_humidity=state.cached_target_humidity,
-            shovel_occupied=state.cached_shovel_occupied,
-            transfer_station_occupied=state.cached_transfer_station_occupied,
-            transfer_station_2_occupied=state.cached_transfer_station_2_occupied,
-        )
-    else:
-        state.cached_current_temperature = liconic.current_temperature
-        state.cached_target_temperature = liconic.target_temperature
-        state.cached_current_humidity = liconic.current_humidity
-        state.cached_target_humidity = liconic.target_humidity
-        state.cached_shovel_occupied = liconic.shovel_occupied
-        state.cached_transfer_station_occupied = liconic.transfer_station_occupied
-        state.cached_transfer_station_2_occupied = liconic.transfer_station_2_occupied
-        return ModuleState(
-            status=state.status,
-            error=state.error,
-            current_temperature=liconic.current_temperature,
-            target_temperature=liconic.target_temperature,
-            current_humidity=liconic.current_humidity,
-            target_humidity=liconic.target_humidity,
-            shovel_occupied=liconic.shovel_occupied,
-            transfer_station_occupied=liconic.transfer_station_occupied,
-            transfer_station_2_occupied=liconic.transfer_station_2_occupied,
-        )
-
-
-@liconic_module.action()
-def get_current_temp(state: State) -> StepResponse:
-    """Returns the current temperature of the incubator"""
-    return StepResponse.step_succeeded(
-        state.liconic.climate_controller.current_temperature
+    liconic_driver_port: int = 3333
+    """Port over which the driver communicates with the incubator device."""
+    liconic_driver_host: str = "localhost"
+    """Host name where the driver is running."""
+    cassette_config_path: Path = Path(
+        "C:/Liconic/stxdriver_64bit/DriverConfig/Devices/CassettesConfig1.xml"
     )
+    """Path to the cassette configuration XML file used by the driver."""
+    node_definition: Path = Path("./definitions/liconic_lisa.node.yaml")
+    """Path to the MADSci node definition YAML file."""
 
 
-@liconic_module.action()
-def get_target_temp(state: State) -> StepResponse:
-    """Returns the target temperature of the incubator"""
-    return StepResponse.step_succeeded(
-        state.liconic.climate_controller.target_temperature
-    )
+class LiconicRestNode(RestNode):
+    """REST-based client for LiCONiC StoreX incubators."""
 
+    liconic_interface: LICONIC = None
+    inventory_handler: InventoryHandler = None
+    config: LiconicNodeConfig = LiconicNodeConfig()
+    config_model = LiconicNodeConfig
 
-@liconic_module.action()
-def set_target_temp(state: State, temp: float) -> StepResponse:
-    """Sets the target temperature of the incubator"""
-    liconic: Stx = state.liconic
-    try:
-        liconic.target_temperature = float(temp)
-        return StepResponse.step_succeeded(f"Set temperature to {temp}")
-    except ValueError:
-        error_msg = "Error: temp argument must be a float"
-        print(error_msg)
-        return StepResponse.step_failed(error_msg)
+    def startup_handler(self) -> None:
+        """Initializes the incubator node."""
 
-
-@liconic_module.action()
-def get_current_humidity(state: State) -> StepResponse:
-    """Returns the current humidity of the incubator"""
-    liconic: Stx = state.liconic
-    return StepResponse.step_succeeded(liconic.current_humidity)
-
-
-@liconic_module.action()
-def get_target_humidity(state: State) -> StepResponse:
-    """Returns the target humidity of the incubator"""
-    liconic: Stx = state.liconic
-    return StepResponse.step_succeeded(liconic.target_humidity)
-
-
-@liconic_module.action()
-def set_target_humidity(state: State, humidity: float) -> StepResponse:
-    """Sets the target humidity of the incubator"""
-    liconic: Stx = state.liconic
-    liconic.target_humidity = float(humidity)
-    return StepResponse.step_succeeded(f"Set humidity to {humidity}")
-
-
-@liconic_module.action()
-def begin_shake(state: State, shaker_speed: int):
-    """Activate the shaker in the liconic at the specified 'shaker_speed'"""
-    liconic: Stx = state.liconic
-    if not shaker_speed == int(liconic.shaker_speed):
-        """already shaking but not at the desired speed"""
-        liconic.shaker_active = False
-        liconic.shaker_speed = int(shaker_speed)
-    liconic.shaker_active = True
-    return StepResponse.step_succeeded(
-        f"Liconic shaker activated, shaker speed: {liconic.shaker_speed}"
-    )
-
-
-@liconic_module.action()
-def end_shake(state: State):
-    """Stop the liconic's shaker"""
-    liconic: Stx = state.liconic
-    liconic.shaker_active = False
-    return StepResponse.step_succeeded("Liconic shaker stopped")
-
-
-@liconic_module.action()
-def load_plate(
-    state: State,
-    plate_id: str,
-    stacker: Optional[int] = None,
-    slot: Optional[int] = None,
-):
-    """Load a plate into the incubator"""
-    liconic: Stx = state.liconic
-    module_resources: ResourceTracker = state.module_resources
-    if stacker is None or slot is None:
-        stacker, slot = module_resources.get_next_free_slot()
-    else:
-        stacker = int(stacker)
-        slot = int(slot)
-    if module_resources.is_location_occupied(stacker, slot):
-        return StepResponse.step_failed(
-            "load_plate command cannot be completed, already plate in given position"
+        # Set up inventory handler.
+        # Handles the majority of the communication with the MADSci resource client
+        # in order to manage the incubator's inventory.
+        self.inventory_handler = InventoryHandler(
+            self.config.cassette_config_path,
+            self.resource_client,
+            self.node_definition.node_name,
         )
-    if not liconic.transfer_station_occupied:
-        return StepResponse.step_failed(
-            "load_plate command cannot be completed, no plate in transfer station"
+
+        # Create the resources.
+        self.init_resource_templates()
+        self.create_resources()
+
+        # Initialize the node.
+        self.logger.log_info(
+            f"Node initializing with host: {self.config.liconic_driver_host}, port: {self.config.liconic_driver_port}"
         )
-    if plate_id is not None or plate_id != "":
+        self.liconic_interface = LICONIC(
+            self.config.liconic_driver_host, self.config.liconic_driver_port
+        )
+
+    def shutdown_handler(self) -> None:
+        """Shuts down the incubator REST node."""
+
         try:
-            module_resources.find_plate(plate_id)
-            return StepResponse.step_failed(f"Plate with ID {plate_id} already in liconic")
-        except ValueError:
-            pass
-    liconic.load_plate(stacker, slot)
-    while liconic.is_busy:
-        time.sleep(1)
-    module_resources.add_plate(plate_id, stacker, slot)
-    return StepResponse.step_succeeded(
-        f"Plate loaded into liconic stack {stacker}, slot {slot}"
+            self.logger.log("Shutting down.")
+            if self.liconic_interface is not None:
+                del self.liconic_interface
+                self.liconic_interface = None
+                self.logger.log("Shutdown complete.")
+        except Exception as err:
+            self.logger.log_error(
+                f"Error shutting down the LiCONiC incubator REST Node: {err}"
+            )
+
+    def init_resource_templates(self) -> None:
+        """Initializes required resource templates."""
+
+        self.resource_client.create_template(
+            resource=Slot(
+                resource_description="The conveyor belt slot resource on the LiCONiC incubator.",
+            ),
+            template_name="liconic_conveyor.nest",
+            description="Template of a liconic conveyor nest.",
+            tags=["PlateNest", "ANSI/SLAS"],
+        )
+
+    def create_resources(self) -> None:
+        """Creates all required incubator resources."""
+
+        # Create the conveyor belt slot resource.
+        self.plate_carrier = self.resource_client.create_resource_from_template(
+            template_name="liconic_conveyor.nest",
+            resource_name=f"{self.node_definition.node_name}_conveyor.nest",
+        )
+
+        # Does the liconic container resource already exist?
+        self.liconic_container_resource_id = None
+        liconic_container_resource_name = f"{self.node_definition.node_name}.container"
+        existing_resource = None
+        try:
+            existing_resource = self.resource_client.query_resource(
+                resource_name=liconic_container_resource_name
+            )
+        except Exception as e:
+            # Warn the user if no liconic container resource was found.
+            # This is not an issue unless the user was expecting this container resource to already exist.
+            self.logger.log_warning(
+                "No existing liconic resource was found. A new LiCONiC container resource will be created. "
+            )
+            self.logger.log_debug(
+                f"No existing liconic container resource was found. Error={e}"
+            )
+
+        # If the liconic container resource DOES NOT exist, create it.
+        if existing_resource is None:
+            liconic_container = Container(
+                resource_name=liconic_container_resource_name,
+                resource_description="Container for all LiCONiC incubator contents.",
+                capacity=4,
+            )
+
+            # Create the stack and slot resources.
+            all_stacks = {}
+            for stack in self.inventory_handler.stacks_dict:
+                num_stack_nests = self.inventory_handler.stacks_dict[stack]
+                stack_type = (
+                    "Deep well" if num_stack_nests == 10 else "Microplate"
+                )  # formatted for descriptions
+                nest_type = "deep_well" if num_stack_nests == 10 else "microplate"
+
+                # Create the stack resource container.
+                current_stack = Container(
+                    resource_name=f"stack{stack}",
+                    resource_description=f"{stack_type} stack resource. Contains {num_stack_nests} slot locations.",
+                    capacity=num_stack_nests,
+                    attributes={"stack_type": nest_type},
+                )
+
+                # Create all slot resources for the current stack container.
+                all_slots_in_current_stack = {}
+                for i in range(num_stack_nests):
+                    current_slot = Slot(
+                        resource_name=f"slot{i + 1}",
+                        resource_description=f"stack{stack}_slot{i + 1} nest resource in LiCONiC incubator",
+                        attributes={"slot_type": nest_type},
+                    )
+                    all_slots_in_current_stack[str(i + 1)] = current_slot
+                current_stack.populate_children(all_slots_in_current_stack)
+
+                # Collect all stack containers.
+                all_stacks[str(stack)] = current_stack
+
+            # Add all stacks containers to the liconic container as children.
+            liconic_container.populate_children(all_stacks)
+
+            # Register the liconic container with the Resource Client.
+            self.liconic_container_resource = self.resource_client.add_resource(
+                resource=liconic_container
+            )
+            self.liconic_container_resource_id = (
+                self.liconic_container_resource.resource_id
+            )
+
+        else:
+            # If the liconic container DOES exist...
+            self.logger.log_info(
+                f"Existing {liconic_container_resource_name} resource found."
+            )
+
+            # Do the configurations of the existing liconic container and CassetteConfig.xml match?
+            configuration_is_matching = True
+            for stack in self.inventory_handler.stacks_dict:
+                num_slots_in_config = self.inventory_handler.stacks_dict[stack]
+                num_slots_in_existing_resource = existing_resource.children[
+                    str(stack)
+                ].capacity
+                if int(num_slots_in_config) != int(num_slots_in_existing_resource):
+                    configuration_is_matching = False
+
+            # Configurations DO match.
+            if configuration_is_matching is True:
+                self.logger.info(
+                    f"Existing {liconic_container_resource_name} resource stack configuration matches configuration of CassetteConfig.xml."
+                )
+                self.liconic_container_resource = existing_resource
+                self.liconic_container_resource_id = existing_resource.resource_id
+
+            # Configurations DO NOT match.
+            else:
+                """
+                Warn the user about the mismatch. If the user would like the liconic container resource to reflect
+                the configuration of the CassetteConfig XML file, then the user should delete the liconic container resource
+                and restart the node. A new liconic container resource will be created that matches the CassetteConfig XML file.
+                """
+                self.logger.log_error(
+                    f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource."
+                )
+                raise Exception(
+                    f"Stack configuration in CassetteConfig.xml does not match the stack configuration of the existing {liconic_container_resource_name} resource. Please delete the existing resource {liconic_container_resource_name} and restart the {self.node_definition.node_name} node to generate a new {liconic_container_resource_name} resource."
+                )
+
+    def state_handler(self) -> None:
+        """Periodically called to update the current state of the incubator node."""
+
+        if self.liconic_interface is None:
+            self.logger.log_error("Liconic interface is not initialized.")
+            return
+
+        # If the incubator device is busy, set node state to cached values.
+        if self.liconic_interface.is_busy:
+            self.node_state = {
+                "liconic_status_code": "BUSY",
+                "current_temperature": self.cached_current_temperature,
+                "target_temperature": self.cached_target_temperature,
+                "current_humidity": self.cached_current_humidity,
+                "target_humidity": self.cached_target_humidity,
+                "transfer_station_occupied": self.cached_transfer_station_occupied,
+            }
+            self.logger.info("BUSY")
+
+        # If the incubator device is not busy, query for fresh state information.
+        else:
+            # Query the device for temperature and humidity.
+            actual_climate = self.liconic_interface.read_actual_climate()
+            self.cached_current_temperature = actual_climate[0]
+            self.cached_current_humidity = actual_climate[1]
+            target_climate = self.liconic_interface.read_set_climate()
+            self.cached_target_temperature = target_climate[0]
+            self.cached_target_humidity = target_climate[1]
+
+            # Query the device for presence of labware on conveyor belt location.
+            transfer_station_status = (
+                self.liconic_interface.read_transfer_station_detector()
+            )
+            self.cached_transfer_station_occupied = transfer_station_status == 1
+            if transfer_station_status == -1:
+                self.cached_transfer_station_occupied = "ERROR"
+
+            # Update the node state.
+            self.node_state = {
+                "liconic_status_code": "READY",
+                "current_temperature": self.cached_current_temperature,
+                "target_temperature": self.cached_target_temperature,
+                "current_humidity": self.cached_current_humidity,
+                "target_humidity": self.cached_target_humidity,
+                "transfer_station_occupied": self.cached_transfer_station_occupied,
+            }
+            self.logger.info("READY")
+
+    @action(
+        name="set_target_temp",
+        description="Set the target temperature of the incubator.",
     )
+    def set_target_temp(
+        self, temp: Annotated[float, "Target temperature in Celsius."]
+    ) -> None:
+        """Sets the target temperature of the incubator."""
 
+        # Validate temperature argument with a Pydantic model.
+        try:
+            SetTemperatureModel(temperature=temp)
+        except Exception as err:
+            # Fail action. Do not put device into an error state.
+            # Users should try again with a correct temperature argument.
+            self.logger.log_error(f"Error validating set_target_temp arguments: {err}")
+            return ActionFailed(errors=str(err))
 
-@liconic_module.action()
-def unload_plate(
-    state: State,
-    plate_id: Optional[str] = None,
-    stacker: Optional[int] = None,
-    slot: Optional[int] = None,
-):
-    """Unload a plate from the incubator"""
-    liconic: Stx = state.liconic
-    module_resources: ResourceTracker = state.module_resources
-    if stacker is None or slot is None and plate_id is not None:
-        # * Get location based on plate id
-        stacker, slot = module_resources.find_plate(plate_id)
-    else:
-        stacker = int(stacker)
-        slot = int(slot)
-    if liconic.transfer_station_occupied:
-        return StepResponse.step_failed(
-            "Transfer station occupied, please clear it before unloading."
+        # Set the new target temperature while keeping humidity, CO2, and N2 the same.
+        try:
+            climate = self.liconic_interface.read_set_climate()
+            self.liconic_interface.write_set_climate(
+                temperature=float(temp),
+                humidity=climate[1],
+                co2=climate[2],
+                n2=climate[3],
+            )
+            self.logger.log("Target temperature set successfully.")
+        except Exception as err:
+            # Fail the action. Do not put device in an error state.
+            self.logger.log_error(f"Error setting target temperature: {err}")
+            return ActionFailed(errors=str(err))
+
+        return None
+
+    @action(
+        name="set_target_humidity",
+        description="Set the target humidity of the incubator.",
+    )
+    def set_target_humidity(
+        self, humidity: Annotated[float, "Target humidity in percent humidity."]
+    ) -> None:
+        """Sets the target humidity of the incubator."""
+
+        # Validate humidity argument with a Pydantic model.
+        try:
+            SetHumidityModel(humidity=humidity)
+        except Exception as err:
+            # Fail action. Don't put device into error state.
+            # Users should try again with a correct humidity argument.
+            self.logger.log_error(
+                f"Error validating set_target_humidity arguments: {err}"
+            )
+            return ActionFailed(errors=str(err))
+
+        # Set the new target humidity while keeping humidity, CO2, and N2 the same
+        try:
+            climate = self.liconic_interface.read_set_climate()
+            self.liconic_interface.write_set_climate(
+                temperature=climate[0],
+                humidity=float(humidity),
+                co2=climate[2],
+                n2=climate[3],
+            )
+            self.logger.log("Target humidity set successfully.")
+        except Exception as err:
+            # Fail the action. Do not put the device into an error state.
+            self.logger.log_error(f"Error setting target humidity: {err}")
+            return ActionFailed(errors=f"Error setting target humidity: {err}")
+
+        return None
+
+    @action(
+        name="begin_shake",
+        description="Begin shaking the incubator at the specified speed.",
+    )
+    def begin_shake(
+        self,
+        shaker_id: Annotated[
+            Optional[int],
+            "Shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers).",
+        ] = None,
+        shaker_speed: Annotated[
+            int, "Shaker speed (1-50 valid, default 20 = 200rpm)."
+        ] = 20,
+    ) -> None:
+        """Activate the shaker(s) in the incubator at the specified shaker speed."""
+
+        # Validate arguments with a Pydantic model.
+        try:
+            BeginShakeModel(
+                shaker_id=shaker_id,
+                shaker_speed=shaker_speed,
+            )
+        except Exception as err:
+            # Fail action. Do not put device into an error state.
+            # Users should try again with valid arguments.
+            self.logger.log_error(f"Error validating begin_shake arguments: {err}")
+            return ActionFailed(errors=str(err))
+
+        # Activate shaker(s).
+        if shaker_id is not None:
+            # shaker_id is specified.
+            self.liconic_interface.activate_shaker(
+                shaker_id=shaker_id, speed=shaker_speed
+            )
+            time.sleep(2)
+        else:
+            # shaker_ID is not specified - activate both.
+            self.liconic_interface.activate_shaker(shaker_id=1, speed=shaker_speed)
+            time.sleep(2)
+            self.liconic_interface.activate_shaker(shaker_id=2, speed=shaker_speed)
+            time.sleep(2)
+
+        return None
+
+    @action(name="end_shake", description="Stop the shaker(s) the incubator.")
+    def end_shake(
+        self,
+        shaker_id: Annotated[
+            Optional[int],
+            "Shaker id (shaker 1 = stacks 1 and 2, shaker 2 = stacks 3 and 4 , or None for both shakers).",
+        ] = None,
+    ) -> None:
+        """Stop the shaker(s) in the incubator."""
+
+        # Validate arguments with a Pydantic model.
+        try:
+            EndShakeModel(
+                shaker_id=shaker_id,
+            )
+        except Exception as err:
+            # Fail the action. Don't put device into error state.
+            # Users should try again with valid arguments.
+            self.logger.log_error(f"Error validating end_shake arguments: {err}")
+            return ActionFailed(errors=str(err))
+
+        # Deactivate shaker(s).
+        if shaker_id and str(shaker_id).lower() != "none":
+            # shaker_id is specified.
+            self.liconic_interface.deactivate_shaker(shaker_id=int(shaker_id))
+            time.sleep(2)
+        else:
+            # shaker_id not specified - deactivate both.
+            self.liconic_interface.deactivate_shaker(shaker_id=1)
+            time.sleep(2)
+            self.liconic_interface.deactivate_shaker(shaker_id=2)
+            time.sleep(2)
+
+        return None
+
+    @action(name="load_plate", description="Load labware into the incubator.")
+    def load_plate(
+        self,
+        plate_type: Annotated[str, "Plate type (microplate or deep_well)."],
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+        stack: Annotated[
+            Optional[int], "Stack number (1-4), must also specify slot."
+        ] = None,
+        slot: Annotated[
+            Optional[int],
+            "Slot number (see CassetteConfig.xml in driver for valid slot values), must also specify stack.",
+        ] = None,
+    ) -> None:
+        """Load labware into the incubator."""
+
+        # Collect the current liconic container resource.
+        liconic_resource = self.resource_client.get_resource(
+            self.liconic_container_resource_id
         )
-    if not module_resources.is_location_occupied(stacker, slot):
-        if not liconic.slot_occupied(stacker, slot):
-            return StepResponse.step_failed("No plate in location, can't unload.")
-    if plate_id is None:
-        plate_id = module_resources.get_plate_id(stacker, slot)
-    liconic.unload_plate(stacker, slot)
-    while liconic.is_busy:
-        time.sleep(1)
-    if liconic.transfer_station_occupied:
-        module_resources.remove_plate(plate_id=plate_id, stack=stacker, slot=slot)
-        return StepResponse.step_succeeded(
-            f"Plate unloaded from liconic stack {stacker}, slot {slot}"
+
+        # Validate arguments with a Pydantic model.
+        try:
+            LoadPlateModel(
+                plate_type=plate_type,
+                plate_id=plate_id,
+                stack=stack,
+                slot=slot,
+                current_liconic_resource=liconic_resource,
+                resource_tracker=self.inventory_handler,
+            )
+        except Exception as err:
+            # Fail the action. Do not put the device into an error state.
+            # Users should try again with valid arguments.
+            self.logger.log_error(f"Error validating load_plate arguments: {err}")
+            return ActionFailed(errors=f"Error validating load_plate arguments: {err}")
+
+        # Find next free stack/slot location if stack and slot are not provided.
+        if stack is None and slot is None:
+            stack, slot = self.inventory_handler.get_next_free_slot(
+                plate_type=plate_type,
+                current_liconic_resource=liconic_resource,
+            )
+
+        # Is there a physical plate to load on the conveyor belt location?
+        if self.liconic_interface.read_transfer_station_detector() == 0:
+            # No plate is detected.
+            self.logger.log_error(
+                "Load_plate command cannot be completed, no plate in transfer station."
+            )
+            return ActionFailed(
+                "Load_plate command cannot be completed, no plate in transfer station"
+            )
+
+        # A plate is detected to load. Collect the associated resource details.
+        try:
+            plate_resource = self.resource_client.get_resource(self.plate_carrier).child
+        except Exception as e:
+            # There is no pate resource on the conveyor belt location in the Resource Client.
+            self.logger.log_error(
+                f"There is no plate resource on the conveyor belt to load. {e}"
+            )
+            return ActionFailed(
+                f"There is no plate resource on the conveyor belt to load. {e}"
+            )
+
+        # Set plate ID attribute in plate resource.
+        if plate_id:
+            try:
+                # Collect existing plate ID attribute, if any.
+                existing_liconic_plate_id = plate_resource.attributes[
+                    "liconic_plate_id"
+                ]
+                # Compare existing plate ID to new plate ID argument.
+                if plate_id != existing_liconic_plate_id:
+                    """This is not necessarily an issue. Warn the user."""
+                    self.logger.log_warning(
+                        f"Existing liconic_plate_id attribute {existing_liconic_plate_id} does not match user entered plate id {plate_id}."
+                    )
+            except Exception:
+                self.logger.log_info(
+                    "Plate resource has no existing liconic_plate_id attribute."
+                )
+            # Set the plate ID attribute.
+            plate_resource.attributes["liconic_plate_id"] = plate_id
+            self.resource_client.add_or_update_resource(plate_resource)
+
+        # Load the plate.
+        self.liconic_interface.load_plate(stack=stack, slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
+
+        # Set plate resource as child to slot resource.
+        self.inventory_handler.add_plate(
+            plate_id=plate_id,
+            stack=stack,
+            slot=slot,
+            plate_type=plate_type,
+            plate_resource=plate_resource,
+            current_liconic_resource=liconic_resource,
+            skip_validation=True,  # no need to validate inputs again
         )
-    else:
-        print(f"Failed to unload plate from liconic stack {stacker}, slot {slot}")
+        self.logger.log_info(
+            f"Plate loaded into LiCONiC incubator stack {stack}, slot {slot}."
+        )
+        return None
+
+    @action(name="unload_plate", description="Unload labware from the incubator.")
+    def unload_plate(
+        self,
+        plate_id: Annotated[Optional[str], "plate id"] = None,
+        stack: Annotated[Optional[int], "stacker number (1-4)"] = None,
+        slot: Annotated[
+            Optional[int],
+            "Slot number (1-22 for stacks 1 and 2, 1-10 for stacks 3 and 4).",
+        ] = None,
+    ) -> None:
+        """Unload labware from the incubator."""
+
+        # Collect the current liconic container resource.
+        liconic_resource = self.resource_client.get_resource(
+            self.liconic_container_resource_id
+        )
+
+        # Validate arguments with a Pydantic model.
+        self.logger.info(
+            f"Unload plate arguments before validation: plate_id={plate_id}, stack={stack}, slot={slot}."
+        )
+        try:
+            model = UnloadPlateModel(
+                plate_id=plate_id,
+                stack=stack,
+                slot=slot,
+                resource_tracker=self.inventory_handler,
+                current_liconic_resource=liconic_resource,
+            )
+            # Extract validated values
+            plate_id = model.plate_id
+            stack = model.stack
+            slot = model.slot
+        except Exception as err:
+            # Fail the action. Do not put the device into an error state.
+            # Users should try again with valid arguments.
+            self.logger.log_error(f"Error validating unload_plate arguments: {err}")
+            return ActionFailed(
+                errors=f"Error validating unload_plate arguments: {err}"
+            )
+
+        # Ensure the conveyor belt location is clear PHYSICALLY.
+        if self.liconic_interface.read_transfer_station_detector() == 1:
+            self.logger.log_error(
+                "Transfer station occupied. Please clear it before unloading."
+            )
+            return ActionFailed(
+                errors="Transfer station occupied. Please clear it before unloading."
+            )
+
+        # Unload the plate.
+        self.liconic_interface.unload_plate(stack=stack, slot=slot)
+        while self.liconic_interface.is_busy:
+            time.sleep(1)
+
+        # Unload the plate in the Resource Client.
+        self.inventory_handler.remove_plate(
+            stack=stack,
+            slot=slot,
+            current_liconic_resource=liconic_resource,
+            skip_validation=True,
+        )
+        self.logger.info(
+            f"Plate unloaded from LiCONiC incubator stack {stack}, slot {slot}."
+        )
+        return None
+
+    @action(
+        name="push_labware_to_conveyor",
+        description="Push a plate resource to the conveyor nest slot resource.",
+    )
+    def push_labware_to_conveyor(
+        self,
+        plate_type: Annotated[str, "Plate type (microplate or deep_well)"],
+        plate_name: Annotated[Optional[str], "Name for the labware."] = None,
+        liconic_plate_id: Annotated[
+            Optional[str],
+            "Unique ID for the labware. Can be used to load/unload the labware from the incubator.",
+        ] = None,
+    ) -> None:
+        """
+        Pushes a labware resource (for either a microplate or deep well plate) onto the conveyor belt resource slot.
+
+        NOTE: This is useful when using the LiCONiC REST Node in local only mode. If you're connecting this LiCONiC
+        incubator to other instruments via MADSci, you will not need to use this method. Plate resources will be
+        pushed to the conveyor belt slot resource when they are transferred onto the conveyor belt by a MADSci integrated
+        robotic arm.
+
+        NOTE: liconic_plate_id is not the same as the MADSci resource_id.
+        """
+        # Check that plate_type is supported.
+        if not self.inventory_handler.is_valid_plate_type(plate_type=plate_type):
+            return ActionFailed(f"{plate_type} is unsupported.")
+
+        # Create a resource object for the labware.
+        plate_resource = Resource(
+            resource_name=plate_name if plate_name else f"{plate_type} resource",
+        )
+        plate_resource.attributes["plate_type"] = plate_type
+
+        # Add plate_id attribute to plate resource if provided.
+        if liconic_plate_id:
+            plate_resource.attributes["liconic_plate_id"] = liconic_plate_id
+
+        # Check that no plate resource is already on the conveyor belt in the Resource Client.
+        if self.resource_client.get_resource(self.plate_carrier).child:
+            self.logger.log_error(
+                "A plate resource already exists on the LiCONiC incubator conveyor belt nest."
+            )
+            return ActionFailed(
+                "A plate resource already exists on the LiCONiC incubator conveyor belt nest."
+            )
+
+        # Push new plate resource onto conveyor belt slot resource.
+        self.resource_client.push(
+            resource=self.plate_carrier,
+            child=plate_resource,
+        )
+        return None
+
+    @action(
+        name="pop_labware_from_conveyor",
+        description="Pop a plate resource from the conveyor nest slot resource.",
+    )
+    def pop_labware_from_conveyor(self) -> None:
+        """
+        Pops a labware resource from the LiCONiC incubator conveyor nest slot resource.
+
+        NOTE: This is useful when using the LiCONiC REST Node in local only mode. If you're connecting this LiCONiC
+        incubator to other instruments via MADSci, you will not need to use this method. Plate resources will be
+        removed from the conveyor belt slot resource when they are transferred away from the conveyor belt by a MADSci integrated
+        robotic arm.
+        """
+
+        # Check that a plate resource exists on the conveyor nest slot resource in Resource Client.
+        if self.resource_client.get_resource(self.plate_carrier).child:
+            self.resource_client.pop(self.plate_carrier)
+            self.logger.log_info("Popping resource from conveyor nest slot.")
+        else:
+            self.logger.log_error(
+                "No plate resource exists in the conveyor nest to pop."
+            )
+            return ActionFailed("No plate resource exists in the conveyor nest to pop.")
+
+        return None
 
 
 if __name__ == "__main__":
-    liconic_module.start()
+    liconic_module = LiconicRestNode()
+    liconic_module.start_node()

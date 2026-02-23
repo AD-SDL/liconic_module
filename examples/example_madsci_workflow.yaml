@@ -1,0 +1,48 @@
+name: Example LiCONiC MADSci Workflow
+
+metadata:
+  author: Casey Stone
+  info: Example LiCONiC MADSci Workflow
+  version: 0.1
+
+steps:
+  - name: Set the temperature
+    node: liconic
+    action: set_temp
+    args:
+      temp: 37.0
+
+  - name: Set the humidity
+    node: liconic
+    action: set_humidity
+    args:
+      temp: 95.0
+
+  - name: Start shaker at set speed
+    node: liconic
+    action: begin_shake
+    args:
+      shaker_id: 1
+
+  - name: Stop the shaker
+    node: liconic
+    action: end_shake
+    args:
+      shaker_id: 1
+
+  - name: Load plate
+    node: liconic
+    action: load_plate
+    args:
+      plate_type: "microplate"
+      plate_id: "1"
+      stack: 1
+      slot: 1
+
+  - name: Unload plate
+    node: liconic
+    action: unload_plate
+    args:
+      plate_id: "1"
+
+  
